@@ -37,7 +37,9 @@ def test_download_video_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     def fake_run(argv: list[str], check: bool):
         captured_argv.extend(argv)
         output_arg = argv[argv.index("-o") + 1]
-        actual_path = Path(output_arg.replace("%(ext)s", "mp4"))
+        actual_path = Path(
+            output_arg.replace("%(title)s", "My Video Title").replace("%(ext)s", "mp4")
+        )
         actual_path.write_bytes(b"fake video data")
         return subprocess.CompletedProcess(argv, 0)
 
@@ -48,8 +50,31 @@ def test_download_video_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert result.exists()
     assert result.suffix == ".mp4"
     assert result.parent == tmp_path
+    assert result.name.startswith("My Video Title.")
     assert captured_argv[0] == "yt-dlp"
     assert captured_argv[-1] == "https://example.com/watch?v=abc"
+
+
+def test_download_video_output_path_is_deterministic_per_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured_output_args: list[str] = []
+
+    def fake_run(argv: list[str], check: bool):
+        output_arg = argv[argv.index("-o") + 1]
+        captured_output_args.append(output_arg)
+        Path(output_arg.replace("%(title)s", "Title").replace("%(ext)s", "mp4")).write_bytes(
+            b"data"
+        )
+        return subprocess.CompletedProcess(argv, 0)
+
+    monkeypatch.setattr("whisper_transcriber.downloader.subprocess.run", fake_run)
+
+    url = "https://example.com/watch?v=same"
+    download_video(url, tmp_path, "yt-dlp -o {output} {url}")
+    download_video(url, tmp_path, "yt-dlp -o {output} {url}")
+
+    assert captured_output_args[0] == captured_output_args[1]
 
 
 def test_download_video_command_not_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -91,7 +116,9 @@ def test_download_video_creates_download_dir(
 
     def fake_run(argv: list[str], check: bool):
         output_arg = argv[argv.index("-o") + 1]
-        actual_path = Path(output_arg.replace("%(ext)s", "webm"))
+        actual_path = Path(
+            output_arg.replace("%(title)s", "Nested Video").replace("%(ext)s", "webm")
+        )
         actual_path.write_bytes(b"data")
         return subprocess.CompletedProcess(argv, 0)
 

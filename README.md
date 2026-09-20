@@ -96,7 +96,13 @@ uv run inv transcribe https://example.com/watch?v=abc123 \
 ```
 
 The TXT/SRT outputs are written next to the downloaded video file inside the
-download folder.
+download folder, named after the video's title (e.g. `My Video.a1b2c3d4e5.mp4`,
+with a short tag derived from the URL). Re-running the same URL reuses that
+same destination path, so a finished download is skipped and an interrupted
+one is resumed instead of starting over — and if transcription itself fails
+(e.g. an out-of-memory error), the downloaded video is kept (unless
+`--delete-video` was passed and transcription succeeded), so the next run
+doesn't need to re-download it.
 
 ### TXT output format
 

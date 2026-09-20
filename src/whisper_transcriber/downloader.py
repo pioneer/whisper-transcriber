@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import shlex
 import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
-from uuid import uuid4
 
 
 class VideoDownloadError(Exception):
@@ -21,6 +21,12 @@ def is_video_url(value: str) -> bool:
 def download_video(url: str, download_dir: Path, command_template: str) -> Path:
     """Download ``url`` into ``download_dir`` and return the downloaded file's path.
 
+    The output filename is based on the video's title (e.g. ``My Video.<tag>.mp4``),
+    with a short tag derived from the URL to keep it unique and greppable. The
+    tag is deterministic (not random), so re-running the same URL reuses the
+    same destination path and lets the download tool resume a partial
+    download, or skip one that already finished, instead of starting over.
+
     ``command_template`` is a whitespace/shell-tokenized command whose tokens
     may contain the placeholders ``{url}`` and ``{output}`` (e.g. ``"yt-dlp -o
     {output} {url}"``). The command is executed directly as an argv list (no
@@ -30,10 +36,13 @@ def download_video(url: str, download_dir: Path, command_template: str) -> Path:
     download_dir = download_dir.expanduser()
     download_dir.mkdir(parents=True, exist_ok=True)
 
-    # A unique basename lets us reliably locate the downloaded file afterwards,
-    # regardless of the title/extension the download tool picks.
-    unique_id = uuid4().hex
-    output_template = str(download_dir / f"{unique_id}.%(ext)s")
+    # Derived from the URL (not random) so re-running the same URL reuses the
+    # same destination path: partial downloads resume and finished ones are
+    # skipped, instead of always starting a fresh download. The tag also lets
+    # us reliably locate the downloaded file afterwards, whatever title/
+    # extension the download tool picks.
+    tag = hashlib.sha256(url.encode("utf-8")).hexdigest()[:10]
+    output_template = str(download_dir / f"%(title)s.{tag}.%(ext)s")
 
     try:
         tokens = shlex.split(command_template)
@@ -60,10 +69,10 @@ def download_video(url: str, download_dir: Path, command_template: str) -> Path:
             "See its output above for details."
         )
 
-    matches = sorted(download_dir.glob(f"{unique_id}.*"))
+    matches = sorted(download_dir.glob(f"*.{tag}.*"))
     if not matches:
         raise VideoDownloadError(
-            f"Download command finished but no output file matching '{unique_id}.*' "
+            f"Download command finished but no output file matching '*.{tag}.*' "
             f"was found in {download_dir}."
         )
     return matches[0]
