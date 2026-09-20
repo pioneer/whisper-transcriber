@@ -77,7 +77,9 @@ def validate_media_path(path: Path) -> None:
         )
 
 
-def _classify_load_error(exc: Exception, device: str) -> TranscriptionError:
+def _classify_load_error(
+    exc: Exception, device: str, stage: str = "loading the model"
+) -> TranscriptionError:
     message = str(exc).lower()
 
     if "compute type" in message and ("support" in message or "not support" in message):
@@ -107,9 +109,11 @@ def _classify_load_error(exc: Exception, device: str) -> TranscriptionError:
             )
         if "out of memory" in message or "cuda_error_out_of_memory" in message:
             return OutOfMemoryError(
-                "The GPU ran out of VRAM while loading the model.\n"
-                "Try a smaller model (e.g. --model=small) or a lighter --compute-type "
-                "(e.g. int8), or retry with --device=cpu.\n"
+                f"The GPU ran out of VRAM while {stage}.\n"
+                "To keep the current model/quality, try: closing other GPU programs, a "
+                "lighter --compute-type (e.g. int8 instead of int8_float32), a lower "
+                "--beam-size (e.g. 1), or --device=cpu (slower, uses system RAM instead "
+                "of VRAM). Otherwise, use a smaller --model (e.g. medium or small).\n"
                 f"Original error: {exc}"
             )
 
@@ -128,7 +132,7 @@ def _classify_load_error(exc: Exception, device: str) -> TranscriptionError:
             f"Original error: {exc}"
         )
 
-    return TranscriptionError(f"Failed to load model: {exc}")
+    return TranscriptionError(f"Failed while {stage}: {exc}")
 
 
 def load_model(config: TranscriptionConfig) -> Any:
@@ -169,7 +173,7 @@ def transcribe(
             vad_filter=config.vad_filter,
         )
     except Exception as exc:
-        raise _classify_load_error(exc, config.device) from exc
+        raise _classify_load_error(exc, config.device, stage="starting transcription") from exc
 
     info = TranscriptionInfo(
         language=raw_info.language,
@@ -182,6 +186,6 @@ def transcribe(
             for raw_segment in raw_segments:
                 yield Segment(start=raw_segment.start, end=raw_segment.end, text=raw_segment.text)
         except Exception as exc:
-            raise _classify_load_error(exc, config.device) from exc
+            raise _classify_load_error(exc, config.device, stage="transcribing") from exc
 
     return _iter_segments(), info

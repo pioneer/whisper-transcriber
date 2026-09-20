@@ -153,6 +153,26 @@ uv run inv transcribe file.mp4 --model=small
 uv run inv transcribe file.mp4 --compute-type=int8
 ```
 
+### Keeping `large-v3` quality despite VRAM limits
+
+VRAM usage isn't fixed for the whole run — it can grow during decoding, so
+an OOM can happen partway through a long file even if the model loaded
+fine. If you want to keep `large-v3` (the most accurate model) rather than
+dropping to `medium`/`small`, try, in order:
+
+```bash
+# Lightest CUDA compute type (uses less VRAM than the default int8_float32)
+uv run inv transcribe file.mp4 --model=large-v3 --compute-type=int8
+
+# Greedy decoding uses less memory than beam search, at a small accuracy cost
+uv run inv transcribe file.mp4 --model=large-v3 --compute-type=int8 --beam-size=1
+
+# No VRAM limit at all (uses system RAM instead), just slower
+uv run inv transcribe file.mp4 --model=large-v3 --device=cpu
+```
+
+Also close other GPU-using programs before starting a long transcription.
+
 ## How models are downloaded/cached
 
 The first time you use a given model name, `faster-whisper` downloads it
