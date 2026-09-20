@@ -13,8 +13,8 @@ Ti Mobile).
   (standard subtitles) next to the source file.
 - Streams segments as they are produced — never buffers the whole
   transcript in memory, so hours-long files are fine.
-- Live progress: detected language, model/device, elapsed / total duration,
-  percentage complete.
+- Live progress: detected language, model/device, media position / total
+  duration, percentage complete, and real (wall-clock) time elapsed.
 - Voice activity detection (VAD) enabled by default.
 - Automatic language detection, or pass `--language=uk` / `--language=ru`
   explicitly.

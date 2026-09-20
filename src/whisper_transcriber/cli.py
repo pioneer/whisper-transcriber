@@ -142,12 +142,16 @@ def run_transcribe(
                     total_segment_count += 1
                     resume_from = segment.end
 
+                    elapsed_wall_hms = _format_hms(time.monotonic() - overall_start)
                     elapsed_hms = _format_hms(segment.end)
                     if duration:
                         percent = min(100.0, (segment.end / duration) * 100)
-                        progress = f"[{elapsed_hms} / {_format_hms(duration)}] {percent:5.1f}%"
+                        progress = (
+                            f"[{elapsed_hms} / {_format_hms(duration)}] {percent:5.1f}%   "
+                            f"(elapsed {elapsed_wall_hms})"
+                        )
                     else:
-                        progress = f"[{elapsed_hms}]"
+                        progress = f"[{elapsed_hms}]   (elapsed {elapsed_wall_hms})"
                     print(f"\r{progress}", end="", flush=True)
         except KeyboardInterrupt:
             print(
@@ -179,8 +183,6 @@ def run_transcribe(
             print(f"Deleted downloaded video: {downloaded_path}")
 
         return 0
-
-    return 1  # pragma: no cover - unreachable: the loop always returns or retries
 
     return 1  # pragma: no cover - unreachable: the loop always returns or retries
 
