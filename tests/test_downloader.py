@@ -34,12 +34,12 @@ def test_is_video_url_false_for_local_paths(value: str) -> None:
 def test_download_video_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     captured_argv: list[str] = []
 
-    def fake_run(argv: list[str], capture_output: bool, text: bool, check: bool):
+    def fake_run(argv: list[str], check: bool):
         captured_argv.extend(argv)
         output_arg = argv[argv.index("-o") + 1]
         actual_path = Path(output_arg.replace("%(ext)s", "mp4"))
         actual_path.write_bytes(b"fake video data")
-        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+        return subprocess.CompletedProcess(argv, 0)
 
     monkeypatch.setattr("whisper_transcriber.downloader.subprocess.run", fake_run)
 
@@ -53,7 +53,7 @@ def test_download_video_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 
 
 def test_download_video_command_not_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_run(argv: list[str], capture_output: bool, text: bool, check: bool):
+    def fake_run(argv: list[str], check: bool):
         raise FileNotFoundError("no such file")
 
     monkeypatch.setattr("whisper_transcriber.downloader.subprocess.run", fake_run)
@@ -63,20 +63,20 @@ def test_download_video_command_not_found(tmp_path: Path, monkeypatch: pytest.Mo
 
 
 def test_download_video_nonzero_exit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_run(argv: list[str], capture_output: bool, text: bool, check: bool):
-        return subprocess.CompletedProcess(argv, 1, stdout="", stderr="404 Not Found")
+    def fake_run(argv: list[str], check: bool):
+        return subprocess.CompletedProcess(argv, 1)
 
     monkeypatch.setattr("whisper_transcriber.downloader.subprocess.run", fake_run)
 
-    with pytest.raises(VideoDownloadError, match="404 Not Found"):
+    with pytest.raises(VideoDownloadError, match="exit code 1"):
         download_video("https://example.com/x", tmp_path, "yt-dlp -o {output} {url}")
 
 
 def test_download_video_no_output_file_produced(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def fake_run(argv: list[str], capture_output: bool, text: bool, check: bool):
-        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+    def fake_run(argv: list[str], check: bool):
+        return subprocess.CompletedProcess(argv, 0)
 
     monkeypatch.setattr("whisper_transcriber.downloader.subprocess.run", fake_run)
 
@@ -89,11 +89,11 @@ def test_download_video_creates_download_dir(
 ) -> None:
     download_dir = tmp_path / "nested" / "videos"
 
-    def fake_run(argv: list[str], capture_output: bool, text: bool, check: bool):
+    def fake_run(argv: list[str], check: bool):
         output_arg = argv[argv.index("-o") + 1]
         actual_path = Path(output_arg.replace("%(ext)s", "webm"))
         actual_path.write_bytes(b"data")
-        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+        return subprocess.CompletedProcess(argv, 0)
 
     monkeypatch.setattr("whisper_transcriber.downloader.subprocess.run", fake_run)
 

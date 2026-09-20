@@ -44,7 +44,9 @@ def download_video(url: str, download_dir: Path, command_template: str) -> Path:
     argv = [token.format(url=url, output=output_template) for token in tokens]
 
     try:
-        result = subprocess.run(argv, capture_output=True, text=True, check=False)
+        # Inherit stdout/stderr so the download tool's own progress output
+        # (e.g. yt-dlp's live progress bar) is visible to the user.
+        result = subprocess.run(argv, check=False)
     except FileNotFoundError as exc:
         raise VideoDownloadError(
             f"Download command '{argv[0]}' not found. Install it (e.g. `pip install "
@@ -54,8 +56,8 @@ def download_video(url: str, download_dir: Path, command_template: str) -> Path:
 
     if result.returncode != 0:
         raise VideoDownloadError(
-            f"Video download command failed (exit code {result.returncode}):\n"
-            f"{result.stderr.strip() or result.stdout.strip()}"
+            f"Video download command failed (exit code {result.returncode}). "
+            "See its output above for details."
         )
 
     matches = sorted(download_dir.glob(f"{unique_id}.*"))
