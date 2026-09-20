@@ -45,12 +45,22 @@ class TranscriptWriter:
     transcript in memory.
     """
 
-    def __init__(self, txt_path: Path, srt_path: Path) -> None:
+    def __init__(
+        self,
+        txt_path: Path,
+        srt_path: Path,
+        append: bool = False,
+        start_index: int = 1,
+    ) -> None:
+        """``append``/``start_index`` resume a previous run instead of
+        overwriting it, e.g. after retrying a failed transcription attempt.
+        """
         self.txt_path = txt_path
         self.srt_path = srt_path
-        self._txt_file = txt_path.open("w", encoding="utf-8")
-        self._srt_file = srt_path.open("w", encoding="utf-8")
-        self._index = 1
+        mode = "a" if append else "w"
+        self._txt_file = txt_path.open(mode, encoding="utf-8")
+        self._srt_file = srt_path.open(mode, encoding="utf-8")
+        self._index = start_index
 
     def write_segment(self, start: float, end: float, text: str) -> None:
         """Append one segment to both output files, skipping empty text."""

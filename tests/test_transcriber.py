@@ -82,6 +82,31 @@ def test_transcribe_yields_segments_and_info(tmp_path: Path) -> None:
         language="uk",
         beam_size=config.beam_size,
         vad_filter=config.vad_filter,
+        clip_timestamps="0",
+    )
+
+
+def test_transcribe_passes_start_time_as_clip_timestamps(tmp_path: Path) -> None:
+    media_file = tmp_path / "sample.wav"
+    media_file.write_bytes(b"fake data")
+
+    raw_info = MagicMock()
+    raw_info.language = "en"
+    raw_info.language_probability = 0.9
+    raw_info.duration = 10.0
+
+    mock_model = MagicMock()
+    mock_model.transcribe.return_value = (iter([]), raw_info)
+
+    config = TranscriptionConfig()
+    transcribe(media_file, config, model=mock_model, start_time=42.5)
+
+    mock_model.transcribe.assert_called_once_with(
+        str(media_file),
+        language=config.language,
+        beam_size=config.beam_size,
+        vad_filter=config.vad_filter,
+        clip_timestamps="42.5",
     )
 
 

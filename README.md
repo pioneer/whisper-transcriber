@@ -62,6 +62,9 @@ uv run inv transcribe path/to/video.mp4 --model=small
 # Run on CPU (no GPU / CUDA not available)
 uv run inv transcribe path/to/video.mp4 --device=cpu
 
+# Use CUDA, but retry on CPU instead of failing if the GPU runs out of VRAM
+uv run inv transcribe path/to/video.mp4 --cpu-fallback
+
 # Full override
 uv run inv transcribe path/to/video.mp4 --model=small --device=cpu \
     --compute-type=int8 --language=uk --beam-size=1
@@ -173,6 +176,10 @@ uv run inv transcribe file.mp4 --model=large-v3 --compute-type=int8
 # Greedy decoding uses less memory than beam search, at a small accuracy cost
 uv run inv transcribe file.mp4 --model=large-v3 --compute-type=int8 --beam-size=1
 
+# Try CUDA first, but automatically (and loudly) retry on CPU on OOM instead
+# of giving up — no quality lost, just slower if it has to fall back
+uv run inv transcribe file.mp4 --model=large-v3 --cpu-fallback
+
 # No VRAM limit at all (uses system RAM instead), just slower
 uv run inv transcribe file.mp4 --model=large-v3 --device=cpu
 ```
@@ -236,7 +243,12 @@ eval "$(uv run inv cuda-env)"
 
 By design, this tool **never silently falls back from CUDA to CPU** — if
 you asked for `--device=cuda` and it can't be used, you get a clear error
-and a non-zero exit code, not a slow surprise.
+and a non-zero exit code, not a slow surprise. If you'd rather keep
+`large-v3`/full quality and retry on CPU than fail on an out-of-memory
+error, opt in explicitly with `--cpu-fallback`: it prints a clear message
+and resumes on CPU from wherever the GPU attempt left off (already-written
+segments are kept, not re-transcribed) instead of doing this automatically,
+silently, or from scratch.
 
 ## Project layout
 
@@ -277,6 +289,7 @@ language = None  # automatic detection
 video_download_dir = "~/Video"
 video_download_command = "yt-dlp -o {output} {url}"
 delete_video = False
+cpu_fallback = False
 ```
 
 Override any of these per-run via CLI flags (see Usage above).

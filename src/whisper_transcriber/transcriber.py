@@ -153,8 +153,14 @@ def transcribe(
     path: Path,
     config: TranscriptionConfig,
     model: Any | None = None,
+    start_time: float = 0.0,
 ) -> tuple[Iterator[Segment], TranscriptionInfo]:
     """Transcribe ``path`` and return ``(segments_iterator, info)``.
+
+    ``start_time`` skips ahead to that offset (in seconds) instead of
+    transcribing from the beginning, e.g. to resume after a previous attempt
+    failed partway through. Segment timestamps are still relative to the
+    full file. Note: VAD filtering is skipped when ``start_time`` is set.
 
     ``info`` (language, language_probability, duration) is available
     immediately; ``segments_iterator`` is a lazy generator that must be
@@ -171,6 +177,7 @@ def transcribe(
             language=config.language,
             beam_size=config.beam_size,
             vad_filter=config.vad_filter,
+            clip_timestamps=str(start_time) if start_time > 0 else "0",
         )
     except Exception as exc:
         raise _classify_load_error(exc, config.device, stage="starting transcription") from exc

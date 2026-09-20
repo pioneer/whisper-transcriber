@@ -87,3 +87,23 @@ def test_transcript_writer_incremental_flush(tmp_path: Path) -> None:
         assert "first segment" in txt_path.read_text(encoding="utf-8")
     finally:
         writer.close()
+
+
+def test_transcript_writer_append_resumes_without_overwriting(tmp_path: Path) -> None:
+    txt_path = tmp_path / "out.txt"
+    srt_path = tmp_path / "out.srt"
+
+    with TranscriptWriter(txt_path, srt_path) as writer:
+        writer.write_segment(0.0, 1.0, "first half")
+
+    with TranscriptWriter(txt_path, srt_path, append=True, start_index=2) as writer:
+        writer.write_segment(1.0, 2.0, "second half")
+
+    txt_content = txt_path.read_text(encoding="utf-8")
+    assert "first half" in txt_content
+    assert "second half" in txt_content
+    assert txt_content.index("first half") < txt_content.index("second half")
+
+    srt_content = srt_path.read_text(encoding="utf-8")
+    assert srt_content.startswith("1\n")
+    assert "\n2\n" in srt_content
