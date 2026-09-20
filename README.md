@@ -88,7 +88,7 @@ uv run inv transcribe https://example.com/watch?v=abc123
 uv run inv transcribe https://example.com/watch?v=abc123 --video-download-dir=/data/videos
 
 # Delete the downloaded video once transcription finishes (default: kept)
-uv run inv transcribe https://example.com/watch?v=abc123 --delete-video-after-transcribe
+uv run inv transcribe https://example.com/watch?v=abc123 --delete-video
 
 # Use a different download tool/command; {url} and {output} are substituted
 uv run inv transcribe https://example.com/watch?v=abc123 \
@@ -250,7 +250,7 @@ vad_filter = True
 language = None  # automatic detection
 video_download_dir = "~/Video"
 video_download_command = "yt-dlp -o {output} {url}"
-delete_video_after_transcribe = False
+delete_video = False
 ```
 
 Override any of these per-run via CLI flags (see Usage above).

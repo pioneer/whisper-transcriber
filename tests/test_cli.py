@@ -40,7 +40,7 @@ def test_run_transcribe_downloads_url_and_deletes_after(
         language=None,
         beam_size=1,
         video_download_dir=str(tmp_path),
-        delete_video_after_transcribe=True,
+        delete_video=True,
     )
 
     assert exit_code == 0

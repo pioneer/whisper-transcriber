@@ -26,7 +26,7 @@ DEFAULT_VIDEO_DOWNLOAD_DIR = "~/Video"
 # substituted with the source URL and the destination output template.
 DEFAULT_VIDEO_DOWNLOAD_COMMAND = "yt-dlp -o {output} {url}"
 # Whether to delete a downloaded video once it has been transcribed.
-DEFAULT_DELETE_VIDEO_AFTER_TRANSCRIBE = False
+DEFAULT_DELETE_VIDEO = False
 
 
 @dataclass(frozen=True, slots=True)

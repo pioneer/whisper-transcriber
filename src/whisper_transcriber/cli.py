@@ -10,7 +10,7 @@ from pathlib import Path
 
 from . import diagnostics as diag
 from .config import (
-    DEFAULT_DELETE_VIDEO_AFTER_TRANSCRIBE,
+    DEFAULT_DELETE_VIDEO,
     DEFAULT_VIDEO_DOWNLOAD_COMMAND,
     DEFAULT_VIDEO_DOWNLOAD_DIR,
     TranscriptionConfig,
@@ -36,7 +36,7 @@ def run_transcribe(
     beam_size: int,
     video_download_dir: str = DEFAULT_VIDEO_DOWNLOAD_DIR,
     video_download_command: str = DEFAULT_VIDEO_DOWNLOAD_COMMAND,
-    delete_video_after_transcribe: bool = DEFAULT_DELETE_VIDEO_AFTER_TRANSCRIBE,
+    delete_video: bool = DEFAULT_DELETE_VIDEO,
 ) -> int:
     """Run a full transcription and write TXT/SRT next to the source file.
 
@@ -131,7 +131,7 @@ def run_transcribe(
     print(f"  {txt_path}")
     print(f"  {srt_path}")
 
-    if delete_video_after_transcribe and downloaded_path is not None:
+    if delete_video and downloaded_path is not None:
         downloaded_path.unlink(missing_ok=True)
         print(f"Deleted downloaded video: {downloaded_path}")
 

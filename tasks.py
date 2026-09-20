@@ -17,7 +17,7 @@ from invoke import Context, task
 from whisper_transcriber.config import (
     DEFAULT_BEAM_SIZE,
     DEFAULT_COMPUTE_TYPE,
-    DEFAULT_DELETE_VIDEO_AFTER_TRANSCRIBE,
+    DEFAULT_DELETE_VIDEO,
     DEFAULT_DEVICE,
     DEFAULT_MODEL,
     DEFAULT_VIDEO_DOWNLOAD_COMMAND,
@@ -61,7 +61,7 @@ def transcribe(
     beam_size: int = DEFAULT_BEAM_SIZE,
     video_download_dir: str = DEFAULT_VIDEO_DOWNLOAD_DIR,
     video_download_command: str = DEFAULT_VIDEO_DOWNLOAD_COMMAND,
-    delete_video_after_transcribe: bool = DEFAULT_DELETE_VIDEO_AFTER_TRANSCRIBE,
+    delete_video: bool = DEFAULT_DELETE_VIDEO,
 ) -> None:
     """Transcribe a video/audio file, or a video URL, to <file>.txt and <file>.srt."""
     _ensure_cuda_ld_library_path(device)
@@ -77,7 +77,7 @@ def transcribe(
         beam_size=beam_size,
         video_download_dir=video_download_dir,
         video_download_command=video_download_command,
-        delete_video_after_transcribe=delete_video_after_transcribe,
+        delete_video=delete_video,
     )
     raise SystemExit(exit_code)
 
