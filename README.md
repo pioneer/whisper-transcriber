@@ -20,7 +20,9 @@ Ti Mobile).
   explicitly.
 - Clean Ctrl+C handling — partial output is kept, not corrupted.
 - Fails loudly (non-zero exit + clear message) if CUDA was requested but
-  isn't usable — never silently falls back to CPU.
+  isn't usable at all — never silently falls back to CPU. If CUDA runs out
+  of VRAM partway through, it loudly resumes on CPU from where it left off
+  by default (pass `--no-cpu-fallback` to fail instead).
 - `uv run inv diagnose` reports Python/OS/library/CUDA state without
   depending on PyTorch.
 
@@ -64,6 +66,9 @@ uv run inv transcribe path/to/video.mp4 --device=cpu
 
 # Use CUDA, but retry on CPU instead of failing if the GPU runs out of VRAM
 uv run inv transcribe path/to/video.mp4 --cpu-fallback
+
+# Disable the default CPU fallback and fail immediately on a GPU OOM instead
+uv run inv transcribe path/to/video.mp4 --no-cpu-fallback
 
 # Full override
 uv run inv transcribe path/to/video.mp4 --model=small --device=cpu \
@@ -166,8 +171,9 @@ uv run inv transcribe file.mp4 --compute-type=int8
 
 VRAM usage isn't fixed for the whole run — it can grow during decoding, so
 an OOM can happen partway through a long file even if the model loaded
-fine. If you want to keep `large-v3` (the most accurate model) rather than
-dropping to `medium`/`small`, try, in order:
+fine. By default this resumes on CPU automatically when that happens (see
+above), so you don't need to do anything. If you want to avoid the CPU
+slowdown and stay on GPU, try, in order:
 
 ```bash
 # Lightest CUDA compute type (uses less VRAM than the default int8_float32)
@@ -175,10 +181,6 @@ uv run inv transcribe file.mp4 --model=large-v3 --compute-type=int8
 
 # Greedy decoding uses less memory than beam search, at a small accuracy cost
 uv run inv transcribe file.mp4 --model=large-v3 --compute-type=int8 --beam-size=1
-
-# Try CUDA first, but automatically (and loudly) retry on CPU on OOM instead
-# of giving up — no quality lost, just slower if it has to fall back
-uv run inv transcribe file.mp4 --model=large-v3 --cpu-fallback
 
 # No VRAM limit at all (uses system RAM instead), just slower
 uv run inv transcribe file.mp4 --model=large-v3 --device=cpu
@@ -242,13 +244,13 @@ eval "$(uv run inv cuda-env)"
   model is cached under `~/.cache/huggingface/`, no network is required.
 
 By design, this tool **never silently falls back from CUDA to CPU** — if
-you asked for `--device=cuda` and it can't be used, you get a clear error
-and a non-zero exit code, not a slow surprise. If you'd rather keep
-`large-v3`/full quality and retry on CPU than fail on an out-of-memory
-error, opt in explicitly with `--cpu-fallback`: it prints a clear message
-and resumes on CPU from wherever the GPU attempt left off (already-written
-segments are kept, not re-transcribed) instead of doing this automatically,
-silently, or from scratch.
+you asked for `--device=cuda` and it can't be used *at all* (no device,
+missing libraries, etc.), you get a clear error and a non-zero exit code,
+not a slow surprise. The one exception is running out of VRAM mid-transcription:
+by default (`--cpu-fallback`, on unless you pass `--no-cpu-fallback`) it prints
+a clear message and resumes on CPU from wherever the GPU attempt left off
+(already-written segments are kept, not re-transcribed) instead of failing —
+keeping the same model/quality, just slower.
 
 ## Project layout
 
@@ -289,7 +291,7 @@ language = None  # automatic detection
 video_download_dir = "~/Video"
 video_download_command = "yt-dlp -o {output} {url}"
 delete_video = False
-cpu_fallback = False
+cpu_fallback = True
 ```
 
 Override any of these per-run via CLI flags (see Usage above).

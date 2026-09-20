@@ -216,6 +216,7 @@ def test_run_transcribe_oom_without_cpu_fallback_fails(
         compute_type="int8_float32",
         language=None,
         beam_size=1,
+        cpu_fallback=False,
     )
 
     assert exit_code == 1
