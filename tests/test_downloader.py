@@ -126,3 +126,27 @@ def test_download_video_creates_download_dir(
 
     result = download_video("https://example.com/x", download_dir, "yt-dlp -o {output} {url}")
     assert result.parent == download_dir
+
+
+def test_download_video_ignores_leftover_txt_and_srt_from_previous_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A previous transcription run leaves .txt/.srt files sharing the same tag;
+    re-downloading the same URL must return the video, not one of those.
+    """
+    url = "https://example.com/watch?v=abc"
+
+    def fake_run(argv: list[str], check: bool):
+        output_arg = argv[argv.index("-o") + 1]
+        video_path = Path(output_arg.replace("%(title)s", "My Video").replace("%(ext)s", "webm"))
+        video_path.write_bytes(b"fake video data")
+        # Simulate leftover output from an earlier, already-transcribed run.
+        video_path.with_suffix(".srt").write_text("1\n00:00:00,000 --> 00:00:01,000\nHi\n")
+        video_path.with_suffix(".txt").write_text("[00:00:00] Hi\n")
+        return subprocess.CompletedProcess(argv, 0)
+
+    monkeypatch.setattr("whisper_transcriber.downloader.subprocess.run", fake_run)
+
+    result = download_video(url, tmp_path, "yt-dlp -o {output} {url}")
+
+    assert result.suffix == ".webm"

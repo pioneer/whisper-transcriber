@@ -8,6 +8,8 @@ import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
 
+from .config import SUPPORTED_EXTENSIONS
+
 
 class VideoDownloadError(Exception):
     """A video URL could not be downloaded."""
@@ -69,7 +71,11 @@ def download_video(url: str, download_dir: Path, command_template: str) -> Path:
             "See its output above for details."
         )
 
-    matches = sorted(download_dir.glob(f"*.{tag}.*"))
+    # Exclude our own .txt/.srt outputs from a previous run of the same URL,
+    # which share the tag and would otherwise be mistaken for the video.
+    matches = sorted(
+        p for p in download_dir.glob(f"*.{tag}.*") if p.suffix.lower() in SUPPORTED_EXTENSIONS
+    )
     if not matches:
         raise VideoDownloadError(
             f"Download command finished but no output file matching '*.{tag}.*' "
