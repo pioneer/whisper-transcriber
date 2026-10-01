@@ -12,12 +12,17 @@ from . import diagnostics as diag
 from .config import (
     DEFAULT_CPU_FALLBACK,
     DEFAULT_DELETE_VIDEO,
+    DEFAULT_SUMMARIZE,
+    DEFAULT_SUMMARY_BASE_URL,
+    DEFAULT_SUMMARY_MODEL,
     DEFAULT_VIDEO_DOWNLOAD_COMMAND,
     DEFAULT_VIDEO_DOWNLOAD_DIR,
+    SummaryConfig,
     TranscriptionConfig,
 )
 from .downloader import VideoDownloadError, download_video, is_video_url
 from .output import TranscriptWriter, output_paths_for
+from .summarizer import SummaryError, summarize_file
 from .transcriber import OutOfMemoryError, TranscriptionError, transcribe
 
 
@@ -39,6 +44,11 @@ def run_transcribe(
     video_download_command: str = DEFAULT_VIDEO_DOWNLOAD_COMMAND,
     delete_video: bool = DEFAULT_DELETE_VIDEO,
     cpu_fallback: bool = DEFAULT_CPU_FALLBACK,
+    summarize: bool = DEFAULT_SUMMARIZE,
+    summary_model: str = DEFAULT_SUMMARY_MODEL,
+    summary_api_key: str | None = None,
+    summary_base_url: str | None = None,
+    summary_prompt: str | None = None,
 ) -> int:
     """Run a full transcription and write TXT/SRT next to the source file.
 
@@ -178,6 +188,35 @@ def run_transcribe(
         print(f"  {txt_path}")
         print(f"  {srt_path}")
 
+        if summarize:
+            print("\nGenerating AI summary...", flush=True)
+            summary_start = time.monotonic()
+            summary_config = SummaryConfig(
+                model=summary_model,
+                base_url=summary_base_url or DEFAULT_SUMMARY_BASE_URL,
+                api_key=summary_api_key,
+                system_prompt=summary_prompt,
+            )
+            try:
+
+                def _on_chunk(current: int, total: int) -> None:
+                    print(f"\rSummarizing chunk {current}/{total}...", end="", flush=True)
+
+                summary_path, _ = summarize_file(
+                    txt_path,
+                    summary_config,
+                    on_chunk_progress=_on_chunk,
+                )
+                summary_elapsed = time.monotonic() - summary_start
+                print(f"\nSummary generated in {summary_elapsed:.1f}s. Wrote to:")
+                print(f"  {summary_path}")
+            except SummaryError as exc:
+                print(f"\nError generating summary: {exc}", file=sys.stderr)
+                if delete_video and downloaded_path is not None:
+                    downloaded_path.unlink(missing_ok=True)
+                    print(f"Deleted downloaded video: {downloaded_path}")
+                return 1
+
         if delete_video and downloaded_path is not None:
             downloaded_path.unlink(missing_ok=True)
             print(f"Deleted downloaded video: {downloaded_path}")
@@ -185,6 +224,56 @@ def run_transcribe(
         return 0
 
     return 1  # pragma: no cover - unreachable: the loop always returns or retries
+
+
+def run_summarize(
+    file: str,
+    model: str = DEFAULT_SUMMARY_MODEL,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    prompt: str | None = None,
+    output: str | None = None,
+) -> int:
+    """Generate an AI summary from a transcript file or media file.
+
+    Returns the process exit code (0 on success).
+    """
+    path = Path(file).expanduser().resolve()
+    target_output = Path(output).expanduser().resolve() if output else None
+
+    config = SummaryConfig(
+        model=model,
+        base_url=base_url or DEFAULT_SUMMARY_BASE_URL,
+        api_key=api_key,
+        system_prompt=prompt,
+    )
+
+    print(f"Summarizing transcript for: {path}", flush=True)
+    print(f"Model: {config.model}", flush=True)
+
+    start_time = time.monotonic()
+    try:
+
+        def _on_chunk(current: int, total: int) -> None:
+            print(f"\rSummarizing chunk {current}/{total}...", end="", flush=True)
+
+        summary_path, _ = summarize_file(
+            path,
+            config,
+            output_path=target_output,
+            on_chunk_progress=_on_chunk,
+        )
+    except SummaryError as exc:
+        print(f"\nError: {exc}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("\nSummary cancelled by user.", file=sys.stderr)
+        return 130
+
+    elapsed = time.monotonic() - start_time
+    print(f"\nSummary generated in {elapsed:.1f}s. Wrote to:")
+    print(f"  {summary_path}")
+    return 0
 
 
 def run_diagnose() -> int:

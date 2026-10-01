@@ -92,3 +92,10 @@ class TranscriptWriter:
 def output_paths_for(media_path: Path) -> tuple[Path, Path]:
     """Return the ``(txt_path, srt_path)`` placed next to the source media file."""
     return media_path.with_suffix(".txt"), media_path.with_suffix(".srt")
+
+
+def summary_output_path_for(path: Path) -> Path:
+    """Return the ``<base>.summary.md`` path for a media or transcript file."""
+    if path.name.endswith(".summary.md"):
+        return path
+    return path.with_suffix(".summary.md")

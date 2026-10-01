@@ -13,6 +13,7 @@ from whisper_transcriber.output import (
     format_srt_block,
     format_txt_line,
     output_paths_for,
+    summary_output_path_for,
 )
 
 
@@ -36,6 +37,13 @@ def test_output_paths_for(tmp_path: Path) -> None:
     txt_path, srt_path = output_paths_for(media)
     assert txt_path == tmp_path / "video.txt"
     assert srt_path == tmp_path / "video.srt"
+
+
+def test_summary_output_path_for(tmp_path: Path) -> None:
+    assert summary_output_path_for(tmp_path / "video.mp4") == tmp_path / "video.summary.md"
+    assert summary_output_path_for(tmp_path / "video.txt") == tmp_path / "video.summary.md"
+    assert summary_output_path_for(tmp_path / "video.srt") == tmp_path / "video.summary.md"
+    assert summary_output_path_for(tmp_path / "video.summary.md") == tmp_path / "video.summary.md"
 
 
 def test_transcript_writer_creates_valid_txt_and_srt(tmp_path: Path) -> None:

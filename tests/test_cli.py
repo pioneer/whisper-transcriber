@@ -220,3 +220,115 @@ def test_run_transcribe_oom_without_cpu_fallback_fails(
     )
 
     assert exit_code == 1
+
+
+def test_run_transcribe_with_summarize(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    media_file = tmp_path / "video.wav"
+    media_file.write_bytes(b"fake data")
+
+    monkeypatch.setattr(cli, "transcribe", _fake_transcribe)
+
+    def fake_summarize_file(path, config, output_path=None, on_chunk_progress=None):
+        out = output_path or path.with_suffix(".summary.md")
+        out.write_text("# Summary\nAll good.", encoding="utf-8")
+        return out, "# Summary\nAll good."
+
+    monkeypatch.setattr(cli, "summarize_file", fake_summarize_file)
+
+    exit_code = cli.run_transcribe(
+        file=str(media_file),
+        model="tiny",
+        device="cpu",
+        compute_type="int8",
+        language=None,
+        beam_size=1,
+        summarize=True,
+    )
+
+    assert exit_code == 0
+    assert (tmp_path / "video.txt").exists()
+    assert (tmp_path / "video.srt").exists()
+    assert (tmp_path / "video.summary.md").exists()
+    assert "# Summary" in (tmp_path / "video.summary.md").read_text(encoding="utf-8")
+
+
+def test_run_transcribe_with_summarize_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    media_file = tmp_path / "video.wav"
+    media_file.write_bytes(b"fake data")
+
+    monkeypatch.setattr(cli, "transcribe", _fake_transcribe)
+
+    def fake_summarize_fail(path, config, output_path=None, on_chunk_progress=None):
+        raise cli.SummaryError("API failed")
+
+    monkeypatch.setattr(cli, "summarize_file", fake_summarize_fail)
+
+    exit_code = cli.run_transcribe(
+        file=str(media_file),
+        model="tiny",
+        device="cpu",
+        compute_type="int8",
+        language=None,
+        beam_size=1,
+        summarize=True,
+    )
+
+    assert exit_code == 1
+    # Transcripts are still preserved even if summarization fails
+    assert (tmp_path / "video.txt").exists()
+    assert (tmp_path / "video.srt").exists()
+
+
+def test_run_summarize_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    txt_file = tmp_path / "meeting.txt"
+    txt_file.write_text("Spoken words", encoding="utf-8")
+
+    def fake_summarize_file(path, config, output_path=None, on_chunk_progress=None):
+        out = output_path or path.with_suffix(".summary.md")
+        out.write_text("# Meeting Summary", encoding="utf-8")
+        return out, "# Meeting Summary"
+
+    monkeypatch.setattr(cli, "summarize_file", fake_summarize_file)
+
+    exit_code = cli.run_summarize(file=str(txt_file))
+    assert exit_code == 0
+    assert (tmp_path / "meeting.summary.md").exists()
+
+
+def test_run_summarize_custom_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    txt_file = tmp_path / "meeting.txt"
+    txt_file.write_text("Spoken words", encoding="utf-8")
+    custom_out = tmp_path / "custom.md"
+
+    def fake_summarize_file(path, config, output_path=None, on_chunk_progress=None):
+        out = output_path or path.with_suffix(".summary.md")
+        out.write_text("# Custom Summary", encoding="utf-8")
+        return out, "# Custom Summary"
+
+    monkeypatch.setattr(cli, "summarize_file", fake_summarize_file)
+
+    exit_code = cli.run_summarize(file=str(txt_file), output=str(custom_out))
+    assert exit_code == 0
+    assert custom_out.exists()
+
+
+def test_run_summarize_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_summarize_fail(path, config, output_path=None, on_chunk_progress=None):
+        raise cli.SummaryError("File missing")
+
+    monkeypatch.setattr(cli, "summarize_file", fake_summarize_fail)
+
+    exit_code = cli.run_summarize(file=str(tmp_path / "nonexistent.txt"))
+    assert exit_code == 1
+
+
+def test_run_summarize_keyboard_interrupt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_summarize_cancel(path, config, output_path=None, on_chunk_progress=None):
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(cli, "summarize_file", fake_summarize_cancel)
+
+    exit_code = cli.run_summarize(file=str(tmp_path / "some.txt"))
+    assert exit_code == 130

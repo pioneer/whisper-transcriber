@@ -64,6 +64,13 @@ uv run inv transcribe path/to/video.mp4 --model=small
 # Run on CPU (no GPU / CUDA not available)
 uv run inv transcribe path/to/video.mp4 --device=cpu
 
+# Transcribe and automatically generate an AI summary
+uv run inv transcribe path/to/video.mp4 --summarize
+
+# Transcribe and summarize using a specific AI model or local Ollama
+uv run inv transcribe path/to/video.mp4 --summarize --summary-model=gpt-4o-mini
+uv run inv transcribe path/to/video.mp4 --summarize --summary-base-url=http://localhost:11434/v1 --summary-model=llama3.2
+
 # Use CUDA, but retry on CPU instead of failing if the GPU runs out of VRAM
 uv run inv transcribe path/to/video.mp4 --cpu-fallback
 
@@ -132,6 +139,32 @@ Standard SRT, with millisecond-precision timestamps:
 00:00:09,000 --> 00:00:15,000
 Сьогодні ми поговоримо...
 ```
+
+### AI Summarization
+
+Generate structured Markdown summaries (`<file>.summary.md`) from transcripts using any OpenAI-compatible API (OpenAI, local Ollama, Groq, OpenRouter, vLLM, etc.):
+
+```bash
+# Summarize an existing transcript (or media file with existing .txt/.srt)
+uv run inv summarize path/to/video.txt
+# Alternatively, use the 'summary' alias
+uv run inv summary path/to/video.mp4
+
+# Using OpenAI (set OPENAI_API_KEY environment variable or pass --api-key)
+export OPENAI_API_KEY="sk-..."
+uv run inv summarize path/to/video.txt --model=gpt-4o-mini
+
+# Using local Ollama (auto-detected if running at http://localhost:11434 and no API key set)
+uv run inv summarize path/to/video.txt --base-url=http://localhost:11434/v1 --model=llama3.2
+
+# Custom output file path
+uv run inv summarize path/to/video.txt --output=path/to/custom_summary.md
+
+# Make summary directly during transcription
+uv run inv transcribe path/to/video.mp4 --summarize
+```
+
+For long recordings, multi-chunk map-reduce summarization is performed automatically to stay within LLM context windows.
 
 ## Model recommendations for 4 GB VRAM
 

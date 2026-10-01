@@ -21,6 +21,8 @@ from whisper_transcriber.config import (
     DEFAULT_DELETE_VIDEO,
     DEFAULT_DEVICE,
     DEFAULT_MODEL,
+    DEFAULT_SUMMARIZE,
+    DEFAULT_SUMMARY_MODEL,
     DEFAULT_VIDEO_DOWNLOAD_COMMAND,
     DEFAULT_VIDEO_DOWNLOAD_DIR,
 )
@@ -64,6 +66,11 @@ def transcribe(
     video_download_command: str = DEFAULT_VIDEO_DOWNLOAD_COMMAND,
     delete_video: bool = DEFAULT_DELETE_VIDEO,
     cpu_fallback: bool = DEFAULT_CPU_FALLBACK,
+    summarize: bool = DEFAULT_SUMMARIZE,
+    summary_model: str = DEFAULT_SUMMARY_MODEL,
+    summary_api_key: str | None = None,
+    summary_base_url: str | None = None,
+    summary_prompt: str | None = None,
 ) -> None:
     """Transcribe a video/audio file, or a video URL, to <file>.txt and <file>.srt."""
     _ensure_cuda_ld_library_path(device)
@@ -81,6 +88,35 @@ def transcribe(
         video_download_command=video_download_command,
         delete_video=delete_video,
         cpu_fallback=cpu_fallback,
+        summarize=summarize,
+        summary_model=summary_model,
+        summary_api_key=summary_api_key,
+        summary_base_url=summary_base_url,
+        summary_prompt=summary_prompt,
+    )
+    raise SystemExit(exit_code)
+
+
+@task(aliases=["summary"])
+def summarize(
+    c: Context,
+    file: str,
+    model: str = DEFAULT_SUMMARY_MODEL,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    prompt: str | None = None,
+    output: str | None = None,
+) -> None:
+    """Generate an AI summary from a transcript file (TXT/SRT) or media file."""
+    from whisper_transcriber.cli import run_summarize
+
+    exit_code = run_summarize(
+        file=file,
+        model=model,
+        api_key=api_key,
+        base_url=base_url,
+        prompt=prompt,
+        output=output,
     )
     raise SystemExit(exit_code)
 

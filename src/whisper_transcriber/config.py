@@ -32,6 +32,12 @@ DEFAULT_VIDEO_DOWNLOAD_COMMAND = "yt-dlp -o {output} {url}"
 # Whether to delete a downloaded video once it has been transcribed.
 DEFAULT_DELETE_VIDEO = False
 
+# Default parameters for AI summarization.
+DEFAULT_SUMMARY_MODEL = "gpt-4o-mini"
+DEFAULT_SUMMARY_BASE_URL = "https://api.openai.com/v1"
+DEFAULT_SUMMARY_CHUNK_SIZE = 40_000
+DEFAULT_SUMMARIZE = False
+
 
 @dataclass(frozen=True, slots=True)
 class TranscriptionConfig:
@@ -43,3 +49,14 @@ class TranscriptionConfig:
     beam_size: int = DEFAULT_BEAM_SIZE
     vad_filter: bool = DEFAULT_VAD_FILTER
     language: str | None = DEFAULT_LANGUAGE
+
+
+@dataclass(frozen=True, slots=True)
+class SummaryConfig:
+    """Tunable parameters for AI summarization."""
+
+    model: str = DEFAULT_SUMMARY_MODEL
+    base_url: str = DEFAULT_SUMMARY_BASE_URL
+    api_key: str | None = None
+    system_prompt: str | None = None
+    chunk_size: int = DEFAULT_SUMMARY_CHUNK_SIZE
