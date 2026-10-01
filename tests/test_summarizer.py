@@ -21,6 +21,7 @@ from whisper_transcriber.summarizer import (
     TranscriptNotFoundError,
     chunk_text,
     detect_local_ollama,
+    load_dotenv,
     load_transcript_text,
     resolve_summary_config,
     resolve_transcript_path,
@@ -164,7 +165,32 @@ def test_resolve_summary_config_from_env(monkeypatch: pytest.MonkeyPatch) -> Non
     assert resolved.model == "env-model"
 
 
+def test_load_dotenv(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "# Comment\n"
+        "OPENAI_API_KEY=test-from-dotenv\n"
+        "SUMMARY_MODEL='custom-dotenv-model'\n"
+        "INVALID_LINE_WITHOUT_EQUALS\n",
+        encoding="utf-8",
+    )
+    fake_env: dict[str, str] = {}
+    load_dotenv(env_file, env=fake_env)
+    assert fake_env["OPENAI_API_KEY"] == "test-from-dotenv"
+    assert fake_env["SUMMARY_MODEL"] == "custom-dotenv-model"
+
+
 def test_resolve_summary_config_auto_detects_ollama(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("SUMMARY_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_MODEL", raising=False)
+    monkeypatch.delenv("SUMMARY_MODEL", raising=False)
+
+    with patch("whisper_transcriber.summarizer.detect_local_ollama", return_value=True):
+        cfg = SummaryConfig()
+        resolved = resolve_summary_config(cfg)
+        assert resolved.base_url == "http://localhost:11434/v1"
+        assert resolved.model == "llama3.2"
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("SUMMARY_API_KEY", raising=False)
 

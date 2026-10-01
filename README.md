@@ -150,8 +150,9 @@ uv run inv summarize path/to/video.txt
 # Alternatively, use the 'summary' alias
 uv run inv summary path/to/video.mp4
 
-# Using OpenAI (set OPENAI_API_KEY environment variable or pass --api-key)
-export OPENAI_API_KEY="sk-..."
+# Using OpenAI (set in .env file, shell environment, or pass --api-key)
+# In .env: OPENAI_API_KEY=sk-...
+# Or in shell: export OPENAI_API_KEY="sk-..."
 uv run inv summarize path/to/video.txt --model=gpt-4o-mini
 
 # Using local Ollama (auto-detected if running at http://localhost:11434 and no API key set)

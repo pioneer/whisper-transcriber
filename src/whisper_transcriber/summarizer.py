@@ -146,11 +146,47 @@ def detect_local_ollama(timeout: float = 0.5) -> bool:
         return False
 
 
+def load_dotenv(
+    path: Path | None = None,
+    env: dict[str, str] | None = None,
+) -> None:
+    """Load key-value pairs from a .env file into os.environ if not already present."""
+    if path is None:
+        candidates = [
+            Path.cwd() / ".env",
+            Path(__file__).resolve().parents[2] / ".env",
+        ]
+        for candidate in candidates:
+            if candidate.is_file():
+                path = candidate
+                break
+    if path is None or not path.is_file():
+        return
+
+    target_env = os.environ if env is None else env
+
+    try:
+        content = path.read_text(encoding="utf-8")
+        for line in content.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, val = line.split("=", 1)
+            key = key.strip()
+            val = val.strip().strip("'\"")
+            if key and key not in target_env:
+                target_env[key] = val
+    except Exception:
+        pass
+
+
 def resolve_summary_config(config: SummaryConfig) -> SummaryConfig:
     """Resolve API key, base URL, and model from config and environment.
 
     Supports automatic detection of local Ollama when no API key is set.
     """
+    load_dotenv()
+
     api_key = (
         config.api_key or os.environ.get("SUMMARY_API_KEY") or os.environ.get("OPENAI_API_KEY")
     )
