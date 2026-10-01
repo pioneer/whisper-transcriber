@@ -386,3 +386,66 @@ def test_run_transcribe_with_summarize_language(
     assert exit_code == 0
     assert len(captured_config) == 1
     assert captured_config[0].language == "Ukrainian"
+
+
+def test_run_transcribe_with_summarize_uses_detected_language(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    media_file = tmp_path / "video.wav"
+    media_file.write_bytes(b"fake data")
+
+    def _fake_transcribe_uk(path, config, start_time=0.0):
+        info = TranscriptionInfo(language="uk", language_probability=0.98, duration=2.0)
+        segments = iter([Segment(start=0.0, end=2.0, text="Вітаю всіх")])
+        return segments, info
+
+    monkeypatch.setattr(cli, "transcribe", _fake_transcribe_uk)
+
+    captured_config: list[cli.SummaryConfig] = []
+
+    def fake_summarize_file(path, config, output_path=None, on_chunk_progress=None):
+        captured_config.append(config)
+        out = output_path or path.with_suffix(".summary.md")
+        out.write_text("# Підсумок", encoding="utf-8")
+        return out, "# Підсумок"
+
+    monkeypatch.setattr(cli, "summarize_file", fake_summarize_file)
+
+    exit_code = cli.run_transcribe(
+        file=str(media_file),
+        model="tiny",
+        device="cpu",
+        compute_type="int8",
+        language=None,
+        beam_size=1,
+        summarize=True,
+    )
+
+    assert exit_code == 0
+    assert len(captured_config) == 1
+    assert captured_config[0].language == "Ukrainian"
+
+
+def test_run_summarize_auto_detects_language(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    txt_file = tmp_path / "meeting.txt"
+    txt_file.write_text(
+        "Вітаю всіх на нашому каналі. Сьогодні ми обговоримо новини.",
+        encoding="utf-8",
+    )
+
+    captured_config: list[cli.SummaryConfig] = []
+
+    def fake_summarize_file(path, config, output_path=None, on_chunk_progress=None):
+        captured_config.append(config)
+        out = output_path or path.with_suffix(".summary.md")
+        out.write_text("# Підсумок", encoding="utf-8")
+        return out, "# Підсумок"
+
+    monkeypatch.setattr(cli, "summarize_file", fake_summarize_file)
+
+    exit_code = cli.run_summarize(file=str(txt_file))
+    assert exit_code == 0
+    assert len(captured_config) == 1
+    assert captured_config[0].language == "Ukrainian"

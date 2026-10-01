@@ -22,7 +22,14 @@ from .config import (
 )
 from .downloader import VideoDownloadError, download_video, is_video_url
 from .output import TranscriptWriter, output_paths_for
-from .summarizer import SummaryError, summarize_file
+from .summarizer import (
+    SummaryError,
+    detect_text_language,
+    load_transcript_text,
+    resolve_language_name,
+    resolve_transcript_path,
+    summarize_file,
+)
 from .transcriber import OutOfMemoryError, TranscriptionError, transcribe
 
 
@@ -190,14 +197,21 @@ def run_transcribe(
         print(f"  {srt_path}")
 
         if summarize:
-            print("\nGenerating AI summary...", flush=True)
+            detected_lang = resolve_language_name(info.language)
+            effective_summary_lang = (
+                summary_language
+                or (resolve_language_name(language) if language else None)
+                or detected_lang
+            )
+            lang_label = f" ({effective_summary_lang})" if effective_summary_lang else ""
+            print(f"\nGenerating AI summary{lang_label}...", flush=True)
             summary_start = time.monotonic()
             summary_config = SummaryConfig(
                 model=summary_model,
                 base_url=summary_base_url or DEFAULT_SUMMARY_BASE_URL,
                 api_key=summary_api_key,
                 system_prompt=summary_prompt,
-                language=summary_language,
+                language=effective_summary_lang,
             )
             try:
 
@@ -244,18 +258,40 @@ def run_summarize(
     path = Path(file).expanduser().resolve()
     target_output = Path(output).expanduser().resolve() if output else None
 
+    resolved_lang = resolve_language_name(language)
+
     config = SummaryConfig(
         model=model,
         base_url=base_url or DEFAULT_SUMMARY_BASE_URL,
         api_key=api_key,
         system_prompt=prompt,
-        language=language,
+        language=resolved_lang,
     )
 
     print(f"Summarizing transcript for: {path}", flush=True)
     print(f"Model: {config.model}", flush=True)
-    if config.language:
-        print(f"Language: {config.language}", flush=True)
+
+    try:
+        resolved_path = resolve_transcript_path(path)
+        transcript_text = load_transcript_text(resolved_path)
+        effective_lang = config.language
+        if not effective_lang:
+            detected = detect_text_language(transcript_text)
+            if detected:
+                effective_lang = f"{detected} (detected)"
+                config = SummaryConfig(
+                    model=config.model,
+                    base_url=config.base_url,
+                    api_key=config.api_key,
+                    system_prompt=config.system_prompt,
+                    chunk_size=config.chunk_size,
+                    language=detected,
+                )
+        if effective_lang:
+            print(f"Language: {effective_lang}", flush=True)
+    except Exception:
+        if config.language:
+            print(f"Language: {config.language}", flush=True)
 
     start_time = time.monotonic()
     try:

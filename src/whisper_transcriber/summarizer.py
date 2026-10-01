@@ -26,6 +26,393 @@ from .output import summary_output_path_for
 
 SRT_TIMESTAMP_RE = re.compile(r"^(\d{2}:\d{2}:\d{2}),\d{3}\s+-->\s+(\d{2}:\d{2}:\d{2}),\d{3}$")
 
+LANGUAGE_CODE_TO_NAME: dict[str, str] = {
+    "af": "Afrikaans",
+    "am": "Amharic",
+    "ar": "Arabic",
+    "as": "Assamese",
+    "az": "Azerbaijani",
+    "ba": "Bashkir",
+    "be": "Belarusian",
+    "bg": "Bulgarian",
+    "bn": "Bengali",
+    "bo": "Tibetan",
+    "br": "Breton",
+    "bs": "Bosnian",
+    "ca": "Catalan",
+    "cs": "Czech",
+    "cy": "Welsh",
+    "da": "Danish",
+    "de": "German",
+    "el": "Greek",
+    "en": "English",
+    "es": "Spanish",
+    "et": "Estonian",
+    "eu": "Basque",
+    "fa": "Persian",
+    "fi": "Finnish",
+    "fo": "Faroese",
+    "fr": "French",
+    "gl": "Galician",
+    "gu": "Gujarati",
+    "ha": "Hausa",
+    "haw": "Hawaiian",
+    "he": "Hebrew",
+    "hi": "Hindi",
+    "hr": "Croatian",
+    "ht": "Haitian Creole",
+    "hu": "Hungarian",
+    "hy": "Armenian",
+    "id": "Indonesian",
+    "is": "Icelandic",
+    "it": "Italian",
+    "ja": "Japanese",
+    "jw": "Javanese",
+    "ka": "Georgian",
+    "kk": "Kazakh",
+    "km": "Khmer",
+    "kn": "Kannada",
+    "ko": "Korean",
+    "la": "Latin",
+    "lb": "Luxembourgish",
+    "ln": "Lingala",
+    "lo": "Lao",
+    "lt": "Lithuanian",
+    "lv": "Latvian",
+    "mg": "Malagasy",
+    "mi": "Maori",
+    "mk": "Macedonian",
+    "ml": "Malayalam",
+    "mn": "Mongolian",
+    "mr": "Marathi",
+    "ms": "Malay",
+    "mt": "Maltese",
+    "my": "Myanmar",
+    "ne": "Nepali",
+    "nl": "Dutch",
+    "nn": "Nynorsk",
+    "no": "Norwegian",
+    "oc": "Occitan",
+    "pa": "Punjabi",
+    "pl": "Polish",
+    "ps": "Pashto",
+    "pt": "Portuguese",
+    "ro": "Romanian",
+    "ru": "Russian",
+    "sa": "Sanskrit",
+    "sd": "Sindhi",
+    "si": "Sinhala",
+    "sk": "Slovak",
+    "sl": "Slovenian",
+    "sn": "Shona",
+    "so": "Somali",
+    "sq": "Albanian",
+    "sr": "Serbian",
+    "su": "Sundanese",
+    "sv": "Swedish",
+    "sw": "Swahili",
+    "ta": "Tamil",
+    "te": "Telugu",
+    "tg": "Tajik",
+    "th": "Thai",
+    "tk": "Turkmen",
+    "tl": "Tagalog",
+    "tr": "Turkish",
+    "tt": "Tatar",
+    "ug": "Uyghur",
+    "uk": "Ukrainian",
+    "ur": "Urdu",
+    "uz": "Uzbek",
+    "vi": "Vietnamese",
+    "yi": "Yiddish",
+    "yo": "Yoruba",
+    "zh": "Chinese",
+}
+
+
+def resolve_language_name(code_or_name: str | None) -> str | None:
+    """Resolve an ISO-639-1 code or language name to its canonical English name."""
+    if not code_or_name:
+        return None
+    cleaned = code_or_name.strip()
+    lower = cleaned.lower()
+    if lower in LANGUAGE_CODE_TO_NAME:
+        return LANGUAGE_CODE_TO_NAME[lower]
+    for name in LANGUAGE_CODE_TO_NAME.values():
+        if lower == name.lower():
+            return name
+    return cleaned
+
+
+def detect_text_language(text: str) -> str | None:
+    """Heuristically detect the primary language of transcript text."""
+    if not text:
+        return None
+
+    # Strip timestamps
+    cleaned = re.sub(r"\[\d{2}:\d{2}:\d{2}\s*→\s*\d{2}:\d{2}:\d{2}\]", " ", text)
+    cleaned = re.sub(
+        r"\d{2}:\d{2}:\d{2}[,\.]\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}[,\.]\d{3}",
+        " ",
+        cleaned,
+    )
+
+    # Check non-Latin scripts
+    if re.search(r"[\u4e00-\u9fff]", cleaned):
+        if re.search(r"[\u3040-\u30ff]", cleaned):
+            return "Japanese"
+        return "Chinese"
+    if re.search(r"[\u3040-\u30ff]", cleaned):
+        return "Japanese"
+    if re.search(r"[\uac00-\ud7af]", cleaned):
+        return "Korean"
+    if re.search(r"[\u0600-\u06ff]", cleaned):
+        return "Arabic"
+    if re.search(r"[\u0590-\u05ff]", cleaned):
+        return "Hebrew"
+    if re.search(r"[\u0900-\u097f]", cleaned):
+        return "Hindi"
+    if re.search(r"[\u0370-\u03ff]", cleaned):
+        return "Greek"
+
+    # Cyrillic
+    if re.search(r"[\u0400-\u04ff]", cleaned):
+        lower = cleaned.lower()
+        has_uk = any(c in "іїєґ" for c in lower)
+        has_ru = any(c in "ыэъё" for c in lower)
+        has_be = "ў" in lower
+        if has_uk and not has_ru:
+            return "Ukrainian"
+        if has_ru and not has_uk:
+            return "Russian"
+        if has_be:
+            return "Belarusian"
+
+        words = re.findall(r"\b\w+\b", lower)
+        word_counts: dict[str, int] = {}
+        for w in words:
+            word_counts[w] = word_counts.get(w, 0) + 1
+
+        uk_stopwords = [
+            "і",
+            "в",
+            "на",
+            "не",
+            "що",
+            "як",
+            "це",
+            "до",
+            "для",
+            "та",
+            "за",
+            "з",
+            "але",
+            "ми",
+            "ви",
+            "дуже",
+            "його",
+            "її",
+            "вони",
+        ]
+        ru_stopwords = [
+            "и",
+            "в",
+            "на",
+            "не",
+            "что",
+            "как",
+            "это",
+            "к",
+            "для",
+            "но",
+            "за",
+            "с",
+            "мы",
+            "вы",
+            "очень",
+            "его",
+            "ее",
+            "они",
+        ]
+        uk_score = sum(word_counts.get(w, 0) for w in uk_stopwords)
+        ru_score = sum(word_counts.get(w, 0) for w in ru_stopwords)
+        if uk_score > ru_score:
+            return "Ukrainian"
+        if ru_score > uk_score:
+            return "Russian"
+        return "Ukrainian" if has_uk else ("Russian" if has_ru else None)
+
+    # Latin-script European languages
+    lower = cleaned.lower()
+    words = re.findall(r"\b\w+\b", lower)
+    if not words:
+        return None
+
+    word_counts: dict[str, int] = {}
+    for w in words:
+        word_counts[w] = word_counts.get(w, 0) + 1
+
+    stopwords = {
+        "English": [
+            "the",
+            "and",
+            "is",
+            "of",
+            "to",
+            "in",
+            "that",
+            "it",
+            "with",
+            "for",
+            "as",
+            "was",
+            "on",
+            "are",
+            "by",
+            "this",
+            "they",
+            "at",
+            "be",
+            "from",
+        ],
+        "Spanish": [
+            "el",
+            "la",
+            "de",
+            "que",
+            "y",
+            "a",
+            "en",
+            "los",
+            "las",
+            "del",
+            "por",
+            "con",
+            "para",
+            "una",
+            "uno",
+            "es",
+            "al",
+            "lo",
+            "como",
+            "pero",
+            "sus",
+            "este",
+        ],
+        "German": [
+            "der",
+            "die",
+            "das",
+            "und",
+            "in",
+            "den",
+            "von",
+            "zu",
+            "mit",
+            "sich",
+            "des",
+            "auf",
+            "ist",
+            "im",
+            "dem",
+            "nicht",
+            "eine",
+            "als",
+            "auch",
+        ],
+        "French": [
+            "le",
+            "la",
+            "les",
+            "de",
+            "et",
+            "un",
+            "une",
+            "du",
+            "des",
+            "en",
+            "est",
+            "que",
+            "qui",
+            "dans",
+            "pour",
+            "pas",
+            "sur",
+            "ce",
+            "il",
+        ],
+        "Polish": [
+            "i",
+            "w",
+            "na",
+            "z",
+            "do",
+            "nie",
+            "to",
+            "się",
+            "że",
+            "o",
+            "jak",
+            "ale",
+            "za",
+            "od",
+            "po",
+            "tak",
+            "jest",
+            "co",
+        ],
+        "Italian": [
+            "il",
+            "la",
+            "di",
+            "che",
+            "e",
+            "un",
+            "a",
+            "in",
+            "per",
+            "una",
+            "sono",
+            "mi",
+            "si",
+            "ho",
+            "con",
+            "ti",
+            "le",
+            "ma",
+            "da",
+        ],
+        "Portuguese": [
+            "o",
+            "a",
+            "de",
+            "que",
+            "e",
+            "do",
+            "da",
+            "em",
+            "um",
+            "para",
+            "é",
+            "com",
+            "não",
+            "uma",
+            "os",
+            "no",
+            "se",
+            "na",
+            "por",
+        ],
+    }
+
+    scores = {lang: sum(word_counts.get(w, 0) for w in sw) for lang, sw in stopwords.items()}
+    best_lang, best_score = max(scores.items(), key=lambda x: x[1])
+    if best_score >= 1:
+        return best_lang
+
+    return None
+
+
 DEFAULT_SYSTEM_PROMPT = (
     "You are an expert summarizer. Your task is to produce a well-structured, clear, "
     "and comprehensive summary of the provided audio/video transcript.\n\n"
@@ -57,19 +444,26 @@ def build_system_prompt(config: SummaryConfig) -> str:
         return prompt
 
     if config.language:
-        lang_instruction = f"1. Language: Write the summary in {config.language}."
+        lang_instruction = (
+            f"1. Language: CRITICAL: Write the entire summary, including all headings, "
+            f"bullet points, and text, in {config.language}."
+        )
+        heading_note = f"translate all heading titles to {config.language}"
     else:
         lang_instruction = (
-            "1. Language: Write the summary in the same language as the transcript "
-            "(unless specifically instructed otherwise)."
+            "1. Language: CRITICAL: Detect the language of the transcript and write the entire "
+            "summary, including all headings, bullet points, and text, in the exact same language "
+            "as the transcript. Do NOT default or translate to English unless the transcript "
+            "itself is in English."
         )
+        heading_note = "translate all heading titles to the transcript's language"
 
     return (
         "You are an expert summarizer. Your task is to produce a well-structured, clear, "
         "and comprehensive summary of the provided audio/video transcript.\n\n"
         "Guidelines:\n"
         f"{lang_instruction}\n"
-        "2. Structure in Markdown:\n"
+        f"2. Structure in Markdown ({heading_note}):\n"
         "   - # Summary\n"
         "   - ## Overview: A concise executive summary (2-4 sentences) capturing the core "
         "topic and purpose.\n"
@@ -387,15 +781,35 @@ def summarize_text(
 ) -> str:
     """Generate a summary of transcript text, handling multi-chunk map-reduce if needed."""
     resolved_config = resolve_summary_config(config)
+    if not resolved_config.language:
+        detected = detect_text_language(text)
+        if detected:
+            resolved_config = SummaryConfig(
+                model=resolved_config.model,
+                base_url=resolved_config.base_url,
+                api_key=resolved_config.api_key,
+                system_prompt=resolved_config.system_prompt,
+                chunk_size=resolved_config.chunk_size,
+                language=detected,
+            )
+
     system_prompt = build_system_prompt(resolved_config)
     chunks = chunk_text(text, max_chars=resolved_config.chunk_size)
+
+    lang_instruction = (
+        f" in {resolved_config.language}"
+        if resolved_config.language
+        else " in the exact same language as the transcript (do NOT translate to English)"
+    )
 
     if len(chunks) == 1:
         messages = [
             {"role": "system", "content": system_prompt},
             {
                 "role": "user",
-                "content": f"Please summarize the following transcript:\n\n{chunks[0]}",
+                "content": (
+                    f"Please summarize the following transcript{lang_instruction}:\n\n{chunks[0]}"
+                ),
             },
         ]
         return call_chat_completion(messages, resolved_config)
@@ -403,7 +817,6 @@ def summarize_text(
     # Multi-chunk map-reduce
     chunk_summaries: list[str] = []
     total_chunks = len(chunks)
-    chunk_lang_prompt = f" in {resolved_config.language}" if resolved_config.language else ""
     for i, chunk in enumerate(chunks, 1):
         if on_chunk_progress:
             on_chunk_progress(i, total_chunks)
@@ -413,14 +826,14 @@ def summarize_text(
                 "content": (
                     "You are a helpful assistant summarizing a section of a long transcript. "
                     f"Provide a detailed summary of key points, facts, and topics discussed in "
-                    f"this section{chunk_lang_prompt}, retaining any relevant timestamps."
+                    f"this section{lang_instruction}, retaining any relevant timestamps."
                 ),
             },
             {
                 "role": "user",
                 "content": (
                     f"Transcript section {i} of {total_chunks}:\n\n{chunk}\n\n"
-                    "Summarize this section:"
+                    f"Summarize this section{lang_instruction}:"
                 ),
             },
         ]
@@ -434,8 +847,8 @@ def summarize_text(
             "role": "user",
             "content": (
                 "The following are section-by-section summaries of a long transcript. "
-                "Synthesize them into a single, cohesive, well-structured final summary:\n\n"
-                f"{combined}"
+                "Synthesize them into a single, cohesive, well-structured final summary"
+                f"{lang_instruction}:\n\n{combined}"
             ),
         },
     ]

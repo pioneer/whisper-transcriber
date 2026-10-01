@@ -22,8 +22,10 @@ from whisper_transcriber.summarizer import (
     build_system_prompt,
     chunk_text,
     detect_local_ollama,
+    detect_text_language,
     load_dotenv,
     load_transcript_text,
+    resolve_language_name,
     resolve_summary_config,
     resolve_transcript_path,
     summarize_file,
@@ -182,18 +184,11 @@ def test_load_dotenv(tmp_path: Path) -> None:
 
 
 def test_resolve_summary_config_auto_detects_ollama(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("whisper_transcriber.summarizer.load_dotenv", lambda *a, **k: None)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("SUMMARY_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_MODEL", raising=False)
     monkeypatch.delenv("SUMMARY_MODEL", raising=False)
-
-    with patch("whisper_transcriber.summarizer.detect_local_ollama", return_value=True):
-        cfg = SummaryConfig()
-        resolved = resolve_summary_config(cfg)
-        assert resolved.base_url == "http://localhost:11434/v1"
-        assert resolved.model == "llama3.2"
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("SUMMARY_API_KEY", raising=False)
 
     with patch("whisper_transcriber.summarizer.detect_local_ollama", return_value=True):
         cfg = SummaryConfig()
@@ -246,6 +241,7 @@ def test_summarize_text_multi_chunk() -> None:
 
 
 def test_summarize_text_missing_api_key_raises_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("whisper_transcriber.summarizer.load_dotenv", lambda *a, **k: None)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("SUMMARY_API_KEY", raising=False)
 
@@ -292,13 +288,13 @@ def test_summarize_file_creates_output(tmp_path: Path) -> None:
 def test_build_system_prompt_default() -> None:
     cfg = SummaryConfig()
     prompt = build_system_prompt(cfg)
-    assert "in the same language as the transcript" in prompt
+    assert "exact same language as the transcript" in prompt
 
 
 def test_build_system_prompt_with_language() -> None:
     cfg = SummaryConfig(language="Ukrainian")
     prompt = build_system_prompt(cfg)
-    assert "1. Language: Write the summary in Ukrainian." in prompt
+    assert "in Ukrainian." in prompt
 
 
 def test_build_system_prompt_custom_with_language() -> None:
@@ -333,4 +329,85 @@ def test_summarize_text_with_language_in_messages() -> None:
         assert result == "# Український підсумок"
         assert len(captured_payload) == 1
         system_msg = captured_payload[0]["messages"][0]["content"]
-        assert "Write the summary in Ukrainian." in system_msg
+        assert "in Ukrainian." in system_msg
+
+
+def test_resolve_language_name() -> None:
+    assert resolve_language_name("uk") == "Ukrainian"
+    assert resolve_language_name("UK") == "Ukrainian"
+    assert resolve_language_name("Ukrainian") == "Ukrainian"
+    assert resolve_language_name("en") == "English"
+    assert resolve_language_name("es") == "Spanish"
+    assert resolve_language_name(None) is None
+    assert resolve_language_name("unknown-custom") == "unknown-custom"
+
+
+def test_detect_text_language() -> None:
+    assert (
+        detect_text_language(
+            "[00:00:00 → 00:00:05] Вітаю всіх на нашому каналі. Сьогодні ми обговоримо новини."
+        )
+        == "Ukrainian"
+    )
+    assert (
+        detect_text_language(
+            "[00:00:00 → 00:00:05] Приветствую всех на нашем канале. Сегодня мы обсудим новости."
+        )
+        == "Russian"
+    )
+    assert (
+        detect_text_language(
+            "[00:00:00 → 00:00:05] Welcome to our channel. Today we will discuss the latest news."
+        )
+        == "English"
+    )
+    assert (
+        detect_text_language(
+            "Guten Tag und willkommen zu diesem Kanal. Wir sprechen heute über das Thema."
+        )
+        == "German"
+    )
+    assert (
+        detect_text_language(
+            "Hola a todos y bienvenidos a este canal. Hoy vamos a hablar sobre el proyecto."
+        )
+        == "Spanish"
+    )
+    assert (
+        detect_text_language(
+            "Bonjour à tous et bienvenue sur notre chaîne. Aujourd'hui nous allons parler de cela."
+        )
+        == "French"
+    )
+    assert detect_text_language("今天我们将讨论人工智能的发展") == "Chinese"
+    assert detect_text_language("こんにちは、今日は人工知能について話します") == "Japanese"
+    assert detect_text_language("") is None
+
+
+def test_summarize_text_auto_detects_language() -> None:
+    # No language set in SummaryConfig; should detect Ukrainian from text
+    cfg = SummaryConfig(api_key="test-key")
+    captured_payload: list[dict] = []
+
+    def fake_urlopen(req, timeout=120.0):
+        captured_payload.append(json.loads(req.data.decode("utf-8")))
+        mock_http_resp = MagicMock()
+        mock_http_resp.read.return_value = json.dumps(
+            {"choices": [{"message": {"content": "# Підсумок\nВсе добре."}}]}
+        ).encode("utf-8")
+        mock_http_resp.__enter__.return_value = mock_http_resp
+        return mock_http_resp
+
+    with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+        result = summarize_text(
+            "[00:00:01 → 00:00:05] Вітаю всіх сьогодні. Ми обговоримо важливу тему.",
+            cfg,
+        )
+        assert result == "# Підсумок\nВсе добре."
+        assert len(captured_payload) == 1
+        system_msg = captured_payload[0]["messages"][0]["content"]
+        expected_phrase = (
+            "Write the entire summary, including all headings, bullet points, "
+            "and text, in Ukrainian."
+        )
+        assert expected_phrase in system_msg
