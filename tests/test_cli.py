@@ -332,3 +332,57 @@ def test_run_summarize_keyboard_interrupt(tmp_path: Path, monkeypatch: pytest.Mo
 
     exit_code = cli.run_summarize(file=str(tmp_path / "some.txt"))
     assert exit_code == 130
+
+
+def test_run_summarize_with_language(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    txt_file = tmp_path / "meeting.txt"
+    txt_file.write_text("Spoken words", encoding="utf-8")
+
+    captured_config: list[cli.SummaryConfig] = []
+
+    def fake_summarize_file(path, config, output_path=None, on_chunk_progress=None):
+        captured_config.append(config)
+        out = output_path or path.with_suffix(".summary.md")
+        out.write_text("# Summary", encoding="utf-8")
+        return out, "# Summary"
+
+    monkeypatch.setattr(cli, "summarize_file", fake_summarize_file)
+
+    exit_code = cli.run_summarize(file=str(txt_file), language="Ukrainian")
+    assert exit_code == 0
+    assert len(captured_config) == 1
+    assert captured_config[0].language == "Ukrainian"
+
+
+def test_run_transcribe_with_summarize_language(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    media_file = tmp_path / "video.wav"
+    media_file.write_bytes(b"fake data")
+
+    monkeypatch.setattr(cli, "transcribe", _fake_transcribe)
+
+    captured_config: list[cli.SummaryConfig] = []
+
+    def fake_summarize_file(path, config, output_path=None, on_chunk_progress=None):
+        captured_config.append(config)
+        out = output_path or path.with_suffix(".summary.md")
+        out.write_text("# Summary", encoding="utf-8")
+        return out, "# Summary"
+
+    monkeypatch.setattr(cli, "summarize_file", fake_summarize_file)
+
+    exit_code = cli.run_transcribe(
+        file=str(media_file),
+        model="tiny",
+        device="cpu",
+        compute_type="int8",
+        language=None,
+        beam_size=1,
+        summarize=True,
+        summary_language="Ukrainian",
+    )
+
+    assert exit_code == 0
+    assert len(captured_config) == 1
+    assert captured_config[0].language == "Ukrainian"

@@ -161,8 +161,13 @@ uv run inv summarize path/to/video.txt --base-url=http://localhost:11434/v1 --mo
 # Custom output file path
 uv run inv summarize path/to/video.txt --output=path/to/custom_summary.md
 
+# Specify the summary language (e.g. English, Ukrainian, etc.)
+uv run inv summarize path/to/video.txt --language=English
+uv run inv summarize path/to/video.txt -l Ukrainian
+
 # Make summary directly during transcription
 uv run inv transcribe path/to/video.mp4 --summarize
+uv run inv transcribe path/to/video.mp4 --summarize --summary-language=English
 ```
 
 For long recordings, multi-chunk map-reduce summarization is performed automatically to stay within LLM context windows.

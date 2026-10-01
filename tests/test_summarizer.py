@@ -19,6 +19,7 @@ from whisper_transcriber.summarizer import (
     SummaryAPIError,
     SummaryConfigError,
     TranscriptNotFoundError,
+    build_system_prompt,
     chunk_text,
     detect_local_ollama,
     load_dotenv,
@@ -286,3 +287,50 @@ def test_summarize_file_creates_output(tmp_path: Path) -> None:
         assert out_path.is_file()
         assert out_path.read_text(encoding="utf-8").startswith("# Lecture Summary")
         assert summary_text.startswith("# Lecture Summary")
+
+
+def test_build_system_prompt_default() -> None:
+    cfg = SummaryConfig()
+    prompt = build_system_prompt(cfg)
+    assert "in the same language as the transcript" in prompt
+
+
+def test_build_system_prompt_with_language() -> None:
+    cfg = SummaryConfig(language="Ukrainian")
+    prompt = build_system_prompt(cfg)
+    assert "1. Language: Write the summary in Ukrainian." in prompt
+
+
+def test_build_system_prompt_custom_with_language() -> None:
+    cfg = SummaryConfig(system_prompt="Custom prompt.", language="Ukrainian")
+    prompt = build_system_prompt(cfg)
+    assert prompt.startswith("Custom prompt.")
+    assert "Please write the final summary in Ukrainian." in prompt
+
+
+def test_resolve_summary_config_language_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SUMMARY_LANGUAGE", "French")
+    cfg = SummaryConfig()
+    resolved = resolve_summary_config(cfg)
+    assert resolved.language == "French"
+
+
+def test_summarize_text_with_language_in_messages() -> None:
+    cfg = SummaryConfig(api_key="test-key", language="Ukrainian")
+    captured_payload: list[dict] = []
+
+    def fake_urlopen(req, timeout=120.0):
+        captured_payload.append(json.loads(req.data.decode("utf-8")))
+        mock_http_resp = MagicMock()
+        mock_http_resp.read.return_value = json.dumps(
+            {"choices": [{"message": {"content": "# Український підсумок"}}]}
+        ).encode("utf-8")
+        mock_http_resp.__enter__.return_value = mock_http_resp
+        return mock_http_resp
+
+    with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+        result = summarize_text("Some transcript text.", cfg)
+        assert result == "# Український підсумок"
+        assert len(captured_payload) == 1
+        system_msg = captured_payload[0]["messages"][0]["content"]
+        assert "Write the summary in Ukrainian." in system_msg

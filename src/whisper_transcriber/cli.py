@@ -49,6 +49,7 @@ def run_transcribe(
     summary_api_key: str | None = None,
     summary_base_url: str | None = None,
     summary_prompt: str | None = None,
+    summary_language: str | None = None,
 ) -> int:
     """Run a full transcription and write TXT/SRT next to the source file.
 
@@ -196,6 +197,7 @@ def run_transcribe(
                 base_url=summary_base_url or DEFAULT_SUMMARY_BASE_URL,
                 api_key=summary_api_key,
                 system_prompt=summary_prompt,
+                language=summary_language,
             )
             try:
 
@@ -233,6 +235,7 @@ def run_summarize(
     base_url: str | None = None,
     prompt: str | None = None,
     output: str | None = None,
+    language: str | None = None,
 ) -> int:
     """Generate an AI summary from a transcript file or media file.
 
@@ -246,10 +249,13 @@ def run_summarize(
         base_url=base_url or DEFAULT_SUMMARY_BASE_URL,
         api_key=api_key,
         system_prompt=prompt,
+        language=language,
     )
 
     print(f"Summarizing transcript for: {path}", flush=True)
     print(f"Model: {config.model}", flush=True)
+    if config.language:
+        print(f"Language: {config.language}", flush=True)
 
     start_time = time.monotonic()
     try:

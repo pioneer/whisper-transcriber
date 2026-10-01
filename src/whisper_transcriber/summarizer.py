@@ -18,6 +18,7 @@ from pathlib import Path
 from .config import (
     DEFAULT_SUMMARY_BASE_URL,
     DEFAULT_SUMMARY_CHUNK_SIZE,
+    DEFAULT_SUMMARY_LANGUAGE,
     DEFAULT_SUMMARY_MODEL,
     SummaryConfig,
 )
@@ -45,6 +46,43 @@ DEFAULT_SYSTEM_PROMPT = (
     "3. Tone and Accuracy: Objective, faithful to the source, concise yet informative, "
     "avoiding filler and speculation."
 )
+
+
+def build_system_prompt(config: SummaryConfig) -> str:
+    """Build the system prompt, incorporating language preferences if specified."""
+    if config.system_prompt:
+        prompt = config.system_prompt
+        if config.language:
+            prompt = f"{prompt}\n\nPlease write the final summary in {config.language}."
+        return prompt
+
+    if config.language:
+        lang_instruction = f"1. Language: Write the summary in {config.language}."
+    else:
+        lang_instruction = (
+            "1. Language: Write the summary in the same language as the transcript "
+            "(unless specifically instructed otherwise)."
+        )
+
+    return (
+        "You are an expert summarizer. Your task is to produce a well-structured, clear, "
+        "and comprehensive summary of the provided audio/video transcript.\n\n"
+        "Guidelines:\n"
+        f"{lang_instruction}\n"
+        "2. Structure in Markdown:\n"
+        "   - # Summary\n"
+        "   - ## Overview: A concise executive summary (2-4 sentences) capturing the core "
+        "topic and purpose.\n"
+        "   - ## Key Takeaways: Bullet points of the most important insights, decisions, "
+        "or conclusions.\n"
+        "   - ## Main Topics & Discussion: Detailed section-by-section breakdown of the subjects "
+        "discussed. Include approximate timestamps where relevant if timestamps are present "
+        "in the transcript.\n"
+        "   - ## Action Items / Next Steps: Any follow-up actions, recommendations, or next steps "
+        "mentioned (if applicable).\n"
+        "3. Tone and Accuracy: Objective, faithful to the source, concise yet informative, "
+        "avoiding filler and speculation."
+    )
 
 
 class SummaryError(Exception):
@@ -210,12 +248,15 @@ def resolve_summary_config(config: SummaryConfig) -> SummaryConfig:
             if model == DEFAULT_SUMMARY_MODEL:
                 model = "llama3.2"
 
+    language = config.language or os.environ.get("SUMMARY_LANGUAGE") or DEFAULT_SUMMARY_LANGUAGE
+
     return SummaryConfig(
         model=model,
         base_url=base_url,
         api_key=api_key,
         system_prompt=config.system_prompt,
         chunk_size=config.chunk_size,
+        language=language,
     )
 
 
@@ -345,8 +386,9 @@ def summarize_text(
     on_chunk_progress: Callable[[int, int], None] | None = None,
 ) -> str:
     """Generate a summary of transcript text, handling multi-chunk map-reduce if needed."""
-    system_prompt = config.system_prompt or DEFAULT_SYSTEM_PROMPT
-    chunks = chunk_text(text, max_chars=config.chunk_size)
+    resolved_config = resolve_summary_config(config)
+    system_prompt = build_system_prompt(resolved_config)
+    chunks = chunk_text(text, max_chars=resolved_config.chunk_size)
 
     if len(chunks) == 1:
         messages = [
@@ -356,11 +398,12 @@ def summarize_text(
                 "content": f"Please summarize the following transcript:\n\n{chunks[0]}",
             },
         ]
-        return call_chat_completion(messages, config)
+        return call_chat_completion(messages, resolved_config)
 
     # Multi-chunk map-reduce
     chunk_summaries: list[str] = []
     total_chunks = len(chunks)
+    chunk_lang_prompt = f" in {resolved_config.language}" if resolved_config.language else ""
     for i, chunk in enumerate(chunks, 1):
         if on_chunk_progress:
             on_chunk_progress(i, total_chunks)
@@ -369,8 +412,8 @@ def summarize_text(
                 "role": "system",
                 "content": (
                     "You are a helpful assistant summarizing a section of a long transcript. "
-                    "Provide a detailed summary of key points, facts, and topics discussed in "
-                    "this section, retaining any relevant timestamps."
+                    f"Provide a detailed summary of key points, facts, and topics discussed in "
+                    f"this section{chunk_lang_prompt}, retaining any relevant timestamps."
                 ),
             },
             {
@@ -381,7 +424,7 @@ def summarize_text(
                 ),
             },
         ]
-        summary_piece = call_chat_completion(chunk_messages, config)
+        summary_piece = call_chat_completion(chunk_messages, resolved_config)
         chunk_summaries.append(f"### Section {i} Summary\n{summary_piece}")
 
     combined = "\n\n".join(chunk_summaries)
@@ -396,7 +439,7 @@ def summarize_text(
             ),
         },
     ]
-    return call_chat_completion(final_messages, config)
+    return call_chat_completion(final_messages, resolved_config)
 
 
 def summarize_file(
