@@ -150,3 +150,67 @@ def test_download_video_ignores_leftover_txt_and_srt_from_previous_run(
     result = download_video(url, tmp_path, "yt-dlp -o {output} {url}")
 
     assert result.suffix == ".webm"
+
+
+def test_download_video_injects_cookies_from_browser(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured_argv: list[str] = []
+
+    def fake_run(argv: list[str], check: bool):
+        captured_argv.extend(argv)
+        output_arg = argv[argv.index("-o") + 1]
+        actual_path = Path(output_arg.replace("%(title)s", "Video").replace("%(ext)s", "mp4"))
+        actual_path.write_bytes(b"data")
+        return subprocess.CompletedProcess(argv, 0)
+
+    monkeypatch.setattr("whisper_transcriber.downloader.subprocess.run", fake_run)
+
+    result = download_video(
+        "https://example.com/watch?v=cookies",
+        tmp_path,
+        "yt-dlp -o {output} {url}",
+        cookies_from_browser="firefox",
+    )
+    assert result.exists()
+    assert "--cookies-from-browser" in captured_argv
+    assert captured_argv[captured_argv.index("--cookies-from-browser") + 1] == "firefox"
+
+
+def test_download_video_injects_cookies_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured_argv: list[str] = []
+    cookies_path = tmp_path / "cookies.txt"
+    cookies_path.write_text("# Netscape HTTP Cookie File", encoding="utf-8")
+
+    def fake_run(argv: list[str], check: bool):
+        captured_argv.extend(argv)
+        output_arg = argv[argv.index("-o") + 1]
+        actual_path = Path(output_arg.replace("%(title)s", "Video").replace("%(ext)s", "mp4"))
+        actual_path.write_bytes(b"data")
+        return subprocess.CompletedProcess(argv, 0)
+
+    monkeypatch.setattr("whisper_transcriber.downloader.subprocess.run", fake_run)
+
+    result = download_video(
+        "https://example.com/watch?v=cookies",
+        tmp_path,
+        "yt-dlp -o {output} {url}",
+        cookies_file=str(cookies_path),
+    )
+    assert result.exists()
+    assert "--cookies" in captured_argv
+    assert captured_argv[captured_argv.index("--cookies") + 1] == str(cookies_path)
+
+
+def test_download_video_bot_hint_on_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_run(argv: list[str], check: bool):
+        return subprocess.CompletedProcess(argv, 1)
+
+    monkeypatch.setattr("whisper_transcriber.downloader.subprocess.run", fake_run)
+
+    with pytest.raises(VideoDownloadError, match="--cookies-from-browser"):
+        download_video("https://example.com/x", tmp_path, "yt-dlp -o {output} {url}")

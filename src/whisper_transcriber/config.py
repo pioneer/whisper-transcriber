@@ -29,6 +29,11 @@ DEFAULT_VIDEO_DOWNLOAD_DIR = "~/Video"
 # Command used to download a video URL. ``{url}`` and ``{output}`` are
 # substituted with the source URL and the destination output template.
 DEFAULT_VIDEO_DOWNLOAD_COMMAND = "yt-dlp -o {output} {url}"
+# Browser from which to extract cookies for video downloads (e.g. "firefox",
+# "chrome", "brave", "edge", "safari").
+DEFAULT_COOKIES_FROM_BROWSER: str | None = None
+# Path to a Netscape-format cookies.txt file for video downloads.
+DEFAULT_COOKIES_FILE: str | None = None
 # Whether to delete a downloaded video once it has been transcribed.
 DEFAULT_DELETE_VIDEO = False
 

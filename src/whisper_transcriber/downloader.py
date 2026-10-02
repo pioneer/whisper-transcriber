@@ -20,7 +20,13 @@ def is_video_url(value: str) -> bool:
     return urlparse(value).scheme in ("http", "https")
 
 
-def download_video(url: str, download_dir: Path, command_template: str) -> Path:
+def download_video(
+    url: str,
+    download_dir: Path,
+    command_template: str,
+    cookies_from_browser: str | None = None,
+    cookies_file: str | None = None,
+) -> Path:
     """Download ``url`` into ``download_dir`` and return the downloaded file's path.
 
     The output filename is based on the video's title (e.g. ``My Video.<tag>.mp4``),
@@ -52,7 +58,20 @@ def download_video(url: str, download_dir: Path, command_template: str) -> Path:
         raise VideoDownloadError(f"Invalid video download command template: {exc}") from exc
     if not tokens:
         raise VideoDownloadError("Video download command template is empty.")
+
+    # Inject cookies options if specified and using yt-dlp
+    is_ytdlp = any("yt-dlp" in t for t in tokens[:1])
+    extra_args: list[str] = []
+    if is_ytdlp:
+        if cookies_from_browser and "--cookies-from-browser" not in tokens:
+            extra_args.extend(["--cookies-from-browser", cookies_from_browser])
+        if cookies_file and "--cookies" not in tokens:
+            extra_args.extend(["--cookies", str(Path(cookies_file).expanduser())])
+
     argv = [token.format(url=url, output=output_template) for token in tokens]
+    if extra_args:
+        # Insert extra args right after the command executable
+        argv = [argv[0], *extra_args, *argv[1:]]
 
     try:
         # Inherit stdout/stderr so the download tool's own progress output
@@ -66,9 +85,17 @@ def download_video(url: str, download_dir: Path, command_template: str) -> Path:
         ) from exc
 
     if result.returncode != 0:
+        bot_hint = ""
+        if "yt-dlp" in argv[0] and not cookies_from_browser and not cookies_file:
+            bot_hint = (
+                "\nHint: If YouTube blocked the download ('Sign in to confirm you’re not a bot'), "
+                "pass a browser cookie source, e.g.:\n"
+                "  --cookies-from-browser=firefox   (or chrome, brave, etc.)\n"
+                "  or set YTDLP_COOKIES_FROM_BROWSER=firefox in your .env file."
+            )
         raise VideoDownloadError(
             f"Video download command failed (exit code {result.returncode}). "
-            "See its output above for details."
+            f"See its output above for details.{bot_hint}"
         )
 
     # Exclude our own .txt/.srt outputs from a previous run of the same URL,

@@ -4,12 +4,15 @@ error-to-exit-code mapping, and orchestration of transcriber + output.
 
 from __future__ import annotations
 
+import os
 import sys
 import time
 from pathlib import Path
 
 from . import diagnostics as diag
 from .config import (
+    DEFAULT_COOKIES_FILE,
+    DEFAULT_COOKIES_FROM_BROWSER,
     DEFAULT_CPU_FALLBACK,
     DEFAULT_DELETE_VIDEO,
     DEFAULT_DISPLAY_SUMMARY,
@@ -26,6 +29,7 @@ from .output import TranscriptWriter, output_paths_for, print_markdown
 from .summarizer import (
     SummaryError,
     detect_text_language,
+    load_dotenv,
     load_transcript_text,
     resolve_language_name,
     resolve_transcript_path,
@@ -50,6 +54,8 @@ def run_transcribe(
     beam_size: int,
     video_download_dir: str = DEFAULT_VIDEO_DOWNLOAD_DIR,
     video_download_command: str = DEFAULT_VIDEO_DOWNLOAD_COMMAND,
+    cookies_from_browser: str | None = DEFAULT_COOKIES_FROM_BROWSER,
+    cookies: str | None = DEFAULT_COOKIES_FILE,
     delete_video: bool = DEFAULT_DELETE_VIDEO,
     cpu_fallback: bool = DEFAULT_CPU_FALLBACK,
     summarize: bool = DEFAULT_SUMMARIZE,
@@ -74,13 +80,29 @@ def run_transcribe(
 
     Returns the process exit code (0 on success).
     """
+    load_dotenv()
+    effective_cookies_browser = (
+        cookies_from_browser
+        or os.environ.get("YTDLP_COOKIES_FROM_BROWSER")
+        or os.environ.get("COOKIES_FROM_BROWSER")
+    )
+    effective_cookies_file = (
+        cookies or os.environ.get("YTDLP_COOKIES_FILE") or os.environ.get("COOKIES_FILE")
+    )
+
     downloaded_path: Path | None = None
     if is_video_url(file):
         download_dir = Path(video_download_dir).expanduser()
         print(f"Downloading video: {file}", flush=True)
         print(f"Download folder: {download_dir}", flush=True)
         try:
-            downloaded_path = download_video(file, download_dir, video_download_command)
+            downloaded_path = download_video(
+                file,
+                download_dir,
+                video_download_command,
+                cookies_from_browser=effective_cookies_browser,
+                cookies_file=effective_cookies_file,
+            )
         except VideoDownloadError as exc:
             print(f"\nError: {exc}", file=sys.stderr)
             return 1

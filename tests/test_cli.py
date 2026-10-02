@@ -29,7 +29,13 @@ def test_run_transcribe_downloads_url_and_deletes_after(
     downloaded_file.write_bytes(b"fake video")
 
     monkeypatch.setattr(cli, "is_video_url", lambda value: True)
-    monkeypatch.setattr(cli, "download_video", lambda url, download_dir, command: downloaded_file)
+    monkeypatch.setattr(
+        cli,
+        "download_video",
+        lambda url, download_dir, command, cookies_from_browser=None, cookies_file=None: (
+            downloaded_file
+        ),
+    )
     monkeypatch.setattr(cli, "transcribe", _fake_transcribe)
 
     exit_code = cli.run_transcribe(
@@ -56,7 +62,13 @@ def test_run_transcribe_keeps_video_by_default(
     downloaded_file.write_bytes(b"fake video")
 
     monkeypatch.setattr(cli, "is_video_url", lambda value: True)
-    monkeypatch.setattr(cli, "download_video", lambda url, download_dir, command: downloaded_file)
+    monkeypatch.setattr(
+        cli,
+        "download_video",
+        lambda url, download_dir, command, cookies_from_browser=None, cookies_file=None: (
+            downloaded_file
+        ),
+    )
     monkeypatch.setattr(cli, "transcribe", _fake_transcribe)
 
     exit_code = cli.run_transcribe(
@@ -78,7 +90,13 @@ def test_run_transcribe_download_error_returns_1(
 ) -> None:
     monkeypatch.setattr(cli, "is_video_url", lambda value: True)
 
-    def fake_download(url, download_dir, command):
+    def fake_download(
+        url,
+        download_dir,
+        command,
+        cookies_from_browser=None,
+        cookies_file=None,
+    ):
         raise cli.VideoDownloadError("boom")
 
     monkeypatch.setattr(cli, "download_video", fake_download)
@@ -94,6 +112,39 @@ def test_run_transcribe_download_error_returns_1(
     )
 
     assert exit_code == 1
+
+
+def test_run_transcribe_passes_cookies_options(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    downloaded_file = tmp_path / "abc123.mp4"
+    downloaded_file.write_bytes(b"fake video")
+
+    captured_kwargs: dict = {}
+
+    def fake_download(url, download_dir, command, **kwargs):
+        captured_kwargs.update(kwargs)
+        return downloaded_file
+
+    monkeypatch.setattr(cli, "is_video_url", lambda value: True)
+    monkeypatch.setattr(cli, "download_video", fake_download)
+    monkeypatch.setattr(cli, "transcribe", _fake_transcribe)
+
+    exit_code = cli.run_transcribe(
+        file="https://example.com/video",
+        model="tiny",
+        device="cpu",
+        compute_type="int8",
+        language=None,
+        beam_size=1,
+        video_download_dir=str(tmp_path),
+        cookies_from_browser="firefox",
+        cookies="cookies.txt",
+    )
+
+    assert exit_code == 0
+    assert captured_kwargs["cookies_from_browser"] == "firefox"
+    assert captured_kwargs["cookies_file"] == "cookies.txt"
 
 
 def test_run_transcribe_local_file_not_treated_as_download(

@@ -108,6 +108,10 @@ uv run inv transcribe https://example.com/watch?v=abc123 --delete-video
 # Use a different download tool/command; {url} and {output} are substituted
 uv run inv transcribe https://example.com/watch?v=abc123 \
     --video-download-command="yt-dlp --format best -o {output} {url}"
+
+# Pass cookies if YouTube blocks with "Sign in to confirm you're not a bot"
+uv run inv transcribe https://example.com/watch?v=abc123 --cookies-from-browser=firefox
+# Or set in .env: YTDLP_COOKIES_FROM_BROWSER=firefox
 ```
 
 The TXT/SRT outputs are written next to the downloaded video file inside the
