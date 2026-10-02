@@ -37,6 +37,7 @@ DEFAULT_SUMMARY_MODEL = "gpt-4o-mini"
 DEFAULT_SUMMARY_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_SUMMARY_CHUNK_SIZE = 40_000
 DEFAULT_SUMMARY_LANGUAGE: str | None = None
+DEFAULT_DISPLAY_SUMMARY = True
 DEFAULT_SUMMARIZE = False
 
 
@@ -62,3 +63,4 @@ class SummaryConfig:
     system_prompt: str | None = None
     chunk_size: int = DEFAULT_SUMMARY_CHUNK_SIZE
     language: str | None = DEFAULT_SUMMARY_LANGUAGE
+    display: bool = DEFAULT_DISPLAY_SUMMARY

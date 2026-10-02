@@ -1,6 +1,7 @@
 """Local video/audio transcription powered by faster-whisper."""
 
 from .config import SummaryConfig, TranscriptionConfig
+from .output import print_markdown
 from .summarizer import (
     SummaryError,
     detect_text_language,
@@ -15,6 +16,7 @@ __all__ = [
     "SummaryError",
     "TranscriptionConfig",
     "detect_text_language",
+    "print_markdown",
     "resolve_language_name",
     "summarize_file",
     "summarize_text",

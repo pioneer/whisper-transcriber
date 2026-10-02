@@ -20,6 +20,7 @@ from whisper_transcriber.config import (
     DEFAULT_CPU_FALLBACK,
     DEFAULT_DELETE_VIDEO,
     DEFAULT_DEVICE,
+    DEFAULT_DISPLAY_SUMMARY,
     DEFAULT_MODEL,
     DEFAULT_SUMMARIZE,
     DEFAULT_SUMMARY_LANGUAGE,
@@ -73,6 +74,7 @@ def transcribe(
     summary_base_url: str | None = None,
     summary_prompt: str | None = None,
     summary_language: str | None = DEFAULT_SUMMARY_LANGUAGE,
+    display_summary: bool = DEFAULT_DISPLAY_SUMMARY,
 ) -> None:
     """Transcribe a video/audio file, or a video URL, to <file>.txt and <file>.srt."""
     _ensure_cuda_ld_library_path(device)
@@ -96,6 +98,7 @@ def transcribe(
         summary_base_url=summary_base_url,
         summary_prompt=summary_prompt,
         summary_language=summary_language,
+        display_summary=display_summary,
     )
     raise SystemExit(exit_code)
 
@@ -110,6 +113,8 @@ def summarize(
     prompt: str | None = None,
     output: str | None = None,
     language: str | None = DEFAULT_SUMMARY_LANGUAGE,
+    display: bool = DEFAULT_DISPLAY_SUMMARY,
+    display_summary: bool = DEFAULT_DISPLAY_SUMMARY,
 ) -> None:
     """Generate an AI summary from a transcript file (TXT/SRT) or media file."""
     from whisper_transcriber.cli import run_summarize
@@ -122,6 +127,7 @@ def summarize(
         prompt=prompt,
         output=output,
         language=language,
+        display=display and display_summary,
     )
     raise SystemExit(exit_code)
 

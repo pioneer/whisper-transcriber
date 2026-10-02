@@ -12,6 +12,7 @@ from . import diagnostics as diag
 from .config import (
     DEFAULT_CPU_FALLBACK,
     DEFAULT_DELETE_VIDEO,
+    DEFAULT_DISPLAY_SUMMARY,
     DEFAULT_SUMMARIZE,
     DEFAULT_SUMMARY_BASE_URL,
     DEFAULT_SUMMARY_MODEL,
@@ -21,7 +22,7 @@ from .config import (
     TranscriptionConfig,
 )
 from .downloader import VideoDownloadError, download_video, is_video_url
-from .output import TranscriptWriter, output_paths_for
+from .output import TranscriptWriter, output_paths_for, print_markdown
 from .summarizer import (
     SummaryError,
     detect_text_language,
@@ -57,6 +58,7 @@ def run_transcribe(
     summary_base_url: str | None = None,
     summary_prompt: str | None = None,
     summary_language: str | None = None,
+    display_summary: bool = DEFAULT_DISPLAY_SUMMARY,
 ) -> int:
     """Run a full transcription and write TXT/SRT next to the source file.
 
@@ -212,13 +214,14 @@ def run_transcribe(
                 api_key=summary_api_key,
                 system_prompt=summary_prompt,
                 language=effective_summary_lang,
+                display=display_summary,
             )
             try:
 
                 def _on_chunk(current: int, total: int) -> None:
                     print(f"\rSummarizing chunk {current}/{total}...", end="", flush=True)
 
-                summary_path, _ = summarize_file(
+                summary_path, summary_text = summarize_file(
                     txt_path,
                     summary_config,
                     on_chunk_progress=_on_chunk,
@@ -226,6 +229,8 @@ def run_transcribe(
                 summary_elapsed = time.monotonic() - summary_start
                 print(f"\nSummary generated in {summary_elapsed:.1f}s. Wrote to:")
                 print(f"  {summary_path}")
+                if summary_config.display:
+                    print_markdown(summary_text)
             except SummaryError as exc:
                 print(f"\nError generating summary: {exc}", file=sys.stderr)
                 if delete_video and downloaded_path is not None:
@@ -250,6 +255,7 @@ def run_summarize(
     prompt: str | None = None,
     output: str | None = None,
     language: str | None = None,
+    display: bool = DEFAULT_DISPLAY_SUMMARY,
 ) -> int:
     """Generate an AI summary from a transcript file or media file.
 
@@ -266,6 +272,7 @@ def run_summarize(
         api_key=api_key,
         system_prompt=prompt,
         language=resolved_lang,
+        display=display,
     )
 
     print(f"Summarizing transcript for: {path}", flush=True)
@@ -286,6 +293,7 @@ def run_summarize(
                     system_prompt=config.system_prompt,
                     chunk_size=config.chunk_size,
                     language=detected,
+                    display=config.display,
                 )
         if effective_lang:
             print(f"Language: {effective_lang}", flush=True)
@@ -299,7 +307,7 @@ def run_summarize(
         def _on_chunk(current: int, total: int) -> None:
             print(f"\rSummarizing chunk {current}/{total}...", end="", flush=True)
 
-        summary_path, _ = summarize_file(
+        summary_path, summary_text = summarize_file(
             path,
             config,
             output_path=target_output,
@@ -315,6 +323,8 @@ def run_summarize(
     elapsed = time.monotonic() - start_time
     print(f"\nSummary generated in {elapsed:.1f}s. Wrote to:")
     print(f"  {summary_path}")
+    if config.display:
+        print_markdown(summary_text)
     return 0
 
 

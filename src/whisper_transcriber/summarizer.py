@@ -16,6 +16,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from .config import (
+    DEFAULT_DISPLAY_SUMMARY,
     DEFAULT_SUMMARY_BASE_URL,
     DEFAULT_SUMMARY_CHUNK_SIZE,
     DEFAULT_SUMMARY_LANGUAGE,
@@ -644,6 +645,11 @@ def resolve_summary_config(config: SummaryConfig) -> SummaryConfig:
 
     language = config.language or os.environ.get("SUMMARY_LANGUAGE") or DEFAULT_SUMMARY_LANGUAGE
 
+    display = config.display
+    env_display = os.environ.get("SUMMARY_DISPLAY") or os.environ.get("DISPLAY_SUMMARY")
+    if env_display is not None and config.display == DEFAULT_DISPLAY_SUMMARY:
+        display = env_display.strip().lower() not in {"0", "false", "no", "off"}
+
     return SummaryConfig(
         model=model,
         base_url=base_url,
@@ -651,6 +657,7 @@ def resolve_summary_config(config: SummaryConfig) -> SummaryConfig:
         system_prompt=config.system_prompt,
         chunk_size=config.chunk_size,
         language=language,
+        display=display,
     )
 
 
@@ -791,6 +798,7 @@ def summarize_text(
                 system_prompt=resolved_config.system_prompt,
                 chunk_size=resolved_config.chunk_size,
                 language=detected,
+                display=resolved_config.display,
             )
 
     system_prompt = build_system_prompt(resolved_config)

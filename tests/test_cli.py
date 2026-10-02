@@ -449,3 +449,74 @@ def test_run_summarize_auto_detects_language(
     assert exit_code == 0
     assert len(captured_config) == 1
     assert captured_config[0].language == "Ukrainian"
+
+
+def test_run_summarize_display_option(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    txt_file = tmp_path / "meeting.txt"
+    txt_file.write_text("Spoken words", encoding="utf-8")
+
+    def fake_summarize_file(path, config, output_path=None, on_chunk_progress=None):
+        out = output_path or path.with_suffix(".summary.md")
+        out.write_text("# Summary", encoding="utf-8")
+        return out, "# Summary"
+
+    monkeypatch.setattr(cli, "summarize_file", fake_summarize_file)
+    mock_print = MagicMock()
+    monkeypatch.setattr(cli, "print_markdown", mock_print)
+
+    # By default, display is True
+    exit_code = cli.run_summarize(file=str(txt_file))
+    assert exit_code == 0
+    mock_print.assert_called_once_with("# Summary")
+
+    # With display=False, print_markdown is not called
+    mock_print.reset_mock()
+    exit_code = cli.run_summarize(file=str(txt_file), display=False)
+    assert exit_code == 0
+    mock_print.assert_not_called()
+
+
+def test_run_transcribe_display_summary_option(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    media_file = tmp_path / "video.wav"
+    media_file.write_bytes(b"fake data")
+
+    monkeypatch.setattr(cli, "transcribe", _fake_transcribe)
+
+    def fake_summarize_file(path, config, output_path=None, on_chunk_progress=None):
+        out = output_path or path.with_suffix(".summary.md")
+        out.write_text("# Summary", encoding="utf-8")
+        return out, "# Summary"
+
+    monkeypatch.setattr(cli, "summarize_file", fake_summarize_file)
+    mock_print = MagicMock()
+    monkeypatch.setattr(cli, "print_markdown", mock_print)
+
+    # By default, display_summary is True
+    exit_code = cli.run_transcribe(
+        file=str(media_file),
+        model="tiny",
+        device="cpu",
+        compute_type="int8",
+        language=None,
+        beam_size=1,
+        summarize=True,
+    )
+    assert exit_code == 0
+    mock_print.assert_called_once_with("# Summary")
+
+    # With display_summary=False, print_markdown is not called
+    mock_print.reset_mock()
+    exit_code = cli.run_transcribe(
+        file=str(media_file),
+        model="tiny",
+        device="cpu",
+        compute_type="int8",
+        language=None,
+        beam_size=1,
+        summarize=True,
+        display_summary=False,
+    )
+    assert exit_code == 0
+    mock_print.assert_not_called()

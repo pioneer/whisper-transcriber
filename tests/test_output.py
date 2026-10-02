@@ -6,13 +6,17 @@ No GPU and no Whisper model download are required: segments are plain
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
+
+from rich.console import Console
 
 from whisper_transcriber.output import (
     TranscriptWriter,
     format_srt_block,
     format_txt_line,
     output_paths_for,
+    print_markdown,
     summary_output_path_for,
 )
 
@@ -44,6 +48,16 @@ def test_summary_output_path_for(tmp_path: Path) -> None:
     assert summary_output_path_for(tmp_path / "video.txt") == tmp_path / "video.summary.md"
     assert summary_output_path_for(tmp_path / "video.srt") == tmp_path / "video.summary.md"
     assert summary_output_path_for(tmp_path / "video.summary.md") == tmp_path / "video.summary.md"
+
+
+def test_print_markdown() -> None:
+    buf = io.StringIO()
+    console = Console(file=buf, force_terminal=True, width=80)
+    print_markdown("# Test Title\n- Item 1", console=console)
+    output = buf.getvalue()
+    assert "Test Title" in output
+    assert "Item 1" in output
+    assert "AI Summary" in output
 
 
 def test_transcript_writer_creates_valid_txt_and_srt(tmp_path: Path) -> None:

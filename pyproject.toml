@@ -11,6 +11,7 @@ dependencies = [
     "invoke>=3.0.3",
     "nvidia-cublas-cu12>=12.9.2.10",
     "nvidia-cudnn-cu12>=9.26.0.51",
+    "rich>=15.0.0",
 ]
 
 [build-system]

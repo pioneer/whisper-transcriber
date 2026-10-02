@@ -99,3 +99,15 @@ def summary_output_path_for(path: Path) -> Path:
     if path.name.endswith(".summary.md"):
         return path
     return path.with_suffix(".summary.md")
+
+
+def print_markdown(text: str, console: object | None = None) -> None:
+    """Render markdown with rich terminal formatting."""
+    from rich.console import Console
+    from rich.markdown import Markdown
+
+    c: Console = console if isinstance(console, Console) else Console()
+    c.print()
+    c.rule("[bold]AI Summary[/bold]")
+    c.print(Markdown(text))
+    c.rule()

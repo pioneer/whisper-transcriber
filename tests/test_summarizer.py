@@ -311,6 +311,17 @@ def test_resolve_summary_config_language_from_env(monkeypatch: pytest.MonkeyPatc
     assert resolved.language == "French"
 
 
+def test_resolve_summary_config_display_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SUMMARY_DISPLAY", "false")
+    cfg = SummaryConfig()
+    resolved = resolve_summary_config(cfg)
+    assert resolved.display is False
+
+    monkeypatch.setenv("SUMMARY_DISPLAY", "true")
+    resolved2 = resolve_summary_config(cfg)
+    assert resolved2.display is True
+
+
 def test_summarize_text_with_language_in_messages() -> None:
     cfg = SummaryConfig(api_key="test-key", language="Ukrainian")
     captured_payload: list[dict] = []

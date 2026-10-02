@@ -165,9 +165,14 @@ uv run inv summarize path/to/video.txt --output=path/to/custom_summary.md
 uv run inv summarize path/to/video.txt --language=English
 uv run inv summarize path/to/video.txt -l Ukrainian
 
+# Summaries are displayed in the console with formatted Markdown by default;
+# pass --no-display (or --no-display-summary) to only save to file
+uv run inv summarize path/to/video.txt --no-display
+
 # Make summary directly during transcription
 uv run inv transcribe path/to/video.mp4 --summarize
 uv run inv transcribe path/to/video.mp4 --summarize --summary-language=English
+uv run inv transcribe path/to/video.mp4 --summarize --no-display-summary
 ```
 
 For long recordings, multi-chunk map-reduce summarization is performed automatically to stay within LLM context windows.
