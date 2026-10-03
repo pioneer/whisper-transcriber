@@ -4,6 +4,7 @@ error-to-exit-code mapping, and orchestration of transcriber + output.
 
 from __future__ import annotations
 
+import gc
 import os
 import sys
 import time
@@ -14,6 +15,7 @@ from .config import (
     DEFAULT_COOKIES_FILE,
     DEFAULT_COOKIES_FROM_BROWSER,
     DEFAULT_CPU_FALLBACK,
+    DEFAULT_CUDA_RETRIES,
     DEFAULT_DELETE_VIDEO,
     DEFAULT_DISPLAY_SUMMARY,
     DEFAULT_SUMMARIZE,
@@ -25,7 +27,7 @@ from .config import (
     TranscriptionConfig,
 )
 from .downloader import VideoDownloadError, download_video, is_video_url
-from .output import TranscriptWriter, output_paths_for, print_markdown
+from .output import TranscriptWriter, output_paths_for, print_markdown, read_resume_state
 from .summarizer import (
     SummaryError,
     detect_text_language,
@@ -65,6 +67,8 @@ def run_transcribe(
     summary_prompt: str | None = None,
     summary_language: str | None = None,
     display_summary: bool = DEFAULT_DISPLAY_SUMMARY,
+    cuda_retries: int = DEFAULT_CUDA_RETRIES,
+    resume: bool = False,
 ) -> int:
     """Run a full transcription and write TXT/SRT next to the source file.
 
@@ -72,14 +76,21 @@ def run_transcribe(
     video is downloaded first (to ``video_download_dir``, via
     ``video_download_command``).
 
-    If ``cpu_fallback`` is set and a CUDA out-of-memory error occurs (at model
-    load or partway through transcription), this loudly retries on the CPU
-    instead of failing, keeping the same model/quality. If some segments were
+    CUDA out-of-memory errors resume on CUDA while media progress advances.
+    ``cuda_retries`` limits additional attempts without progress before CPU
+    fallback (if enabled), keeping the same model/quality.
+    If some segments were
     already transcribed before the failure, only the remainder is
     re-transcribed (resuming from that point), not the whole file.
 
+    With ``resume``, existing paired TXT/SRT output supplies the last completed
+    segment's end time and subtitle index, including after a previous Ctrl-C.
+
     Returns the process exit code (0 on success).
     """
+    if cuda_retries < 0:
+        print("Error: --cuda-retries must be non-negative.", file=sys.stderr)
+        return 1
     load_dotenv()
     effective_cookies_browser = (
         cookies_from_browser
@@ -112,18 +123,47 @@ def run_transcribe(
         path = Path(file).expanduser().resolve()
 
     txt_path, srt_path = output_paths_for(path)
-
-    devices_to_try = [device]
-    if cpu_fallback and device != "cpu":
-        devices_to_try.append("cpu")
-
     resume_from = 0.0
     total_segment_count = 0
-    overall_start = time.monotonic()
+    if resume:
+        try:
+            resume_from, total_segment_count = read_resume_state(txt_path, srt_path)
+        except (OSError, ValueError) as exc:
+            print(f"Error: Cannot resume: {exc} Existing output was not changed.", file=sys.stderr)
+            return 1
 
-    for attempt, attempt_device in enumerate(devices_to_try):
-        is_last_attempt = attempt == len(devices_to_try) - 1
-        resuming = resume_from > 0.0
+    overall_start = time.monotonic()
+    segments = None
+    attempt_device = device
+    stalled_retries = 0
+    retrying = False
+
+    def retry_after_oom(exc: OutOfMemoryError) -> bool:
+        nonlocal attempt_device, stalled_retries
+        if attempt_device == "cuda" and resume_from > attempt_resume_from:
+            stalled_retries = 0
+            retry_label = "CUDA resume (progress made; retry budget reset)"
+        elif attempt_device == "cuda" and stalled_retries < cuda_retries:
+            stalled_retries += 1
+            retry_label = f"CUDA retry {stalled_retries}/{cuda_retries} without progress"
+        elif cpu_fallback and attempt_device != "cpu":
+            attempt_device = "cpu"
+            retry_label = "CPU fallback (CUDA stopped progressing; this may be slower)"
+        else:
+            print(f"\n\nError during transcription: {exc}", file=sys.stderr)
+            return False
+        resume_note = f" from {_format_hms(resume_from)}" if resume_from > 0 else ""
+        print(
+            f"\n\n{exc}\n\nRetrying on --device={attempt_device}{resume_note}: {retry_label}...\n"
+        )
+        return True
+
+    while True:
+        if retrying:
+            segments = None
+            gc.collect()
+        attempt_resume_from = resume_from
+        resuming = total_segment_count > 0 or resume_from > 0.0
         resume_note = f" from {_format_hms(resume_from)}" if resuming else ""
         config = TranscriptionConfig(
             model=model,
@@ -153,10 +193,9 @@ def run_transcribe(
         try:
             segments, info = transcribe(path, config, start_time=resume_from)
         except OutOfMemoryError as exc:
-            if not is_last_attempt:
-                print(f"\n{exc}\n\nRetrying on --device=cpu{resume_note} (this may be slower)...\n")
+            retrying = retry_after_oom(exc)
+            if retrying:
                 continue
-            print(f"\nError: {exc}", file=sys.stderr)
             return 1
         except TranscriptionError as exc:
             print(f"\nError: {exc}", file=sys.stderr)
@@ -174,6 +213,8 @@ def run_transcribe(
             print(f"Media duration: {_format_hms(duration)}", flush=True)
 
         print(f"Writing: {txt_path.name}, {srt_path.name}", flush=True)
+        attempt_start = time.monotonic()
+        attempt_media_start = resume_from
 
         try:
             with TranscriptWriter(
@@ -181,35 +222,43 @@ def run_transcribe(
             ) as writer:
                 for segment in segments:
                     writer.write_segment(segment.start, segment.end, segment.text)
-                    total_segment_count += 1
-                    resume_from = segment.end
+                    if segment.text.strip():
+                        total_segment_count += 1
+                    resume_from = max(resume_from, segment.end)
 
-                    elapsed_wall_hms = _format_hms(time.monotonic() - overall_start)
+                    now = time.monotonic()
+                    elapsed_wall_hms = _format_hms(now - overall_start)
                     elapsed_hms = _format_hms(segment.end)
+                    processed = segment.end - attempt_media_start
+                    remaining_label = "remaining unknown"
+                    if duration and processed > 0:
+                        remaining_seconds = (
+                            max(0.0, duration - segment.end) * (now - attempt_start) / processed
+                        )
+                        remaining_label = f"remaining ~{_format_hms(remaining_seconds)}"
                     if duration:
                         percent = min(100.0, (segment.end / duration) * 100)
                         progress = (
                             f"[{elapsed_hms} / {_format_hms(duration)}] {percent:5.1f}%   "
-                            f"(elapsed {elapsed_wall_hms})"
+                            f"(elapsed {elapsed_wall_hms}, {remaining_label})"
                         )
                     else:
-                        progress = f"[{elapsed_hms}]   (elapsed {elapsed_wall_hms})"
+                        progress = (
+                            f"[{elapsed_hms}]   (elapsed {elapsed_wall_hms}, remaining unknown)"
+                        )
                     print(f"\r{progress}", end="", flush=True)
         except KeyboardInterrupt:
             print(
                 f"\n\nInterrupted by user after {total_segment_count} segment(s). "
-                f"Partial output kept at:\n  {txt_path}\n  {srt_path}",
+                f"Partial output kept at:\n  {txt_path}\n  {srt_path}\n"
+                "Run the same command with --resume to continue from the last completed segment.",
                 file=sys.stderr,
             )
             return 130
         except OutOfMemoryError as exc:
-            if not is_last_attempt:
-                resume_note = f" from {_format_hms(resume_from)}" if resume_from > 0.0 else ""
-                print(
-                    f"\n\n{exc}\n\nRetrying on --device=cpu{resume_note} (this may be slower)...\n"
-                )
+            retrying = retry_after_oom(exc)
+            if retrying:
                 continue
-            print(f"\n\nError during transcription: {exc}", file=sys.stderr)
             return 1
         except TranscriptionError as exc:
             print(f"\n\nError during transcription: {exc}", file=sys.stderr)
@@ -265,8 +314,6 @@ def run_transcribe(
             print(f"Deleted downloaded video: {downloaded_path}")
 
         return 0
-
-    return 1  # pragma: no cover - unreachable: the loop always returns or retries
 
 
 def run_summarize(

@@ -9,6 +9,7 @@ from __future__ import annotations
 import io
 from pathlib import Path
 
+import pytest
 from rich.console import Console
 
 from whisper_transcriber.output import (
@@ -17,6 +18,7 @@ from whisper_transcriber.output import (
     format_txt_line,
     output_paths_for,
     print_markdown,
+    read_resume_state,
     summary_output_path_for,
 )
 
@@ -48,6 +50,36 @@ def test_summary_output_path_for(tmp_path: Path) -> None:
     assert summary_output_path_for(tmp_path / "video.txt") == tmp_path / "video.summary.md"
     assert summary_output_path_for(tmp_path / "video.srt") == tmp_path / "video.summary.md"
     assert summary_output_path_for(tmp_path / "video.summary.md") == tmp_path / "video.summary.md"
+
+
+def test_read_resume_state(tmp_path: Path) -> None:
+    txt_path, srt_path = output_paths_for(tmp_path / "video.wav")
+    assert read_resume_state(txt_path, srt_path) == (0.0, 0)
+    with TranscriptWriter(txt_path, srt_path) as writer:
+        writer.write_segment(0.0, 1.125, "first")
+        writer.write_segment(1.125, 2.375, "second\nline")
+    assert read_resume_state(txt_path, srt_path) == (2.375, 2)
+
+
+@pytest.mark.parametrize("damage", ["missing", "truncated", "mismatch", "number", "timestamp"])
+def test_read_resume_state_rejects_damaged_outputs(tmp_path: Path, damage: str) -> None:
+    txt_path, srt_path = output_paths_for(tmp_path / "video.wav")
+    with TranscriptWriter(txt_path, srt_path) as writer:
+        writer.write_segment(0.0, 1.125, "first")
+    if damage == "missing":
+        txt_path.unlink()
+    elif damage == "truncated":
+        srt_path.write_text(srt_path.read_text().rstrip(), encoding="utf-8")
+    elif damage == "mismatch":
+        txt_path.write_text(txt_path.read_text().replace("first", "other"), encoding="utf-8")
+    elif damage == "number":
+        srt_path.write_text(srt_path.read_text().replace("1\n", "2\n", 1), encoding="utf-8")
+    else:
+        srt_path.write_text(srt_path.read_text().replace("00:00:01", "00:99:01"), encoding="utf-8")
+    saved_srt = srt_path.read_bytes()
+    with pytest.raises(ValueError):
+        read_resume_state(txt_path, srt_path)
+    assert srt_path.read_bytes() == saved_srt
 
 
 def test_print_markdown() -> None:

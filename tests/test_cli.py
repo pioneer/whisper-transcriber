@@ -197,7 +197,7 @@ def test_run_transcribe_cpu_fallback_retries_after_oom_at_start(
     )
 
     assert exit_code == 0
-    assert attempted_devices == ["cuda", "cpu"]
+    assert attempted_devices == ["cuda", "cuda", "cuda", "cpu"]
 
 
 def test_run_transcribe_cpu_fallback_resumes_after_mid_stream_oom(
@@ -220,6 +220,8 @@ def test_run_transcribe_cpu_fallback_resumes_after_mid_stream_oom(
         attempted.append((config.device, start_time))
         info = TranscriptionInfo(language="en", language_probability=0.9, duration=2.0)
         if config.device == "cuda":
+            if start_time > 0:
+                raise OutOfMemoryError("GPU out of memory without progress")
             return failing_segments(), info
         assert start_time == 1.0
         return iter([Segment(start=1.0, end=2.0, text="second half")]), info
@@ -234,10 +236,11 @@ def test_run_transcribe_cpu_fallback_resumes_after_mid_stream_oom(
         language=None,
         beam_size=1,
         cpu_fallback=True,
+        cuda_retries=0,
     )
 
     assert exit_code == 0
-    assert attempted == [("cuda", 0.0), ("cpu", 1.0)]
+    assert attempted == [("cuda", 0.0), ("cuda", 1.0), ("cpu", 1.0)]
 
     txt_content = (tmp_path / "video.txt").read_text(encoding="utf-8")
     assert "first half" in txt_content
@@ -271,6 +274,328 @@ def test_run_transcribe_oom_without_cpu_fallback_fails(
     )
 
     assert exit_code == 1
+
+
+@pytest.mark.parametrize("stage", ["load", "stream"])
+def test_cuda_retry_recovers_without_cpu(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stage: str
+) -> None:
+    attempted: list[tuple[str, float]] = []
+
+    def failing_segments():
+        yield Segment(start=0.0, end=1.0, text="first half")
+        raise OutOfMemoryError("OOM")
+
+    def fake_transcribe(path, config, start_time=0.0):
+        attempted.append((config.device, start_time))
+        if len(attempted) == 1:
+            if stage == "load":
+                raise OutOfMemoryError("OOM")
+            info = TranscriptionInfo(language="en", language_probability=0.9, duration=2.0)
+            return failing_segments(), info
+        if stage == "load":
+            return _fake_transcribe(path, config, start_time)
+        info = TranscriptionInfo(language="en", language_probability=0.9, duration=2.0)
+        return iter([Segment(start=1.0, end=2.0, text="second half")]), info
+
+    monkeypatch.setattr(cli, "transcribe", fake_transcribe)
+    assert cli.run_transcribe(str(tmp_path / "video.wav"), "tiny", "cuda", "int8", None, 1) == 0
+    assert attempted == [("cuda", 0.0), ("cuda", 1.0 if stage == "stream" else 0.0)]
+    if stage == "stream":
+        text = (tmp_path / "video.txt").read_text(encoding="utf-8")
+        assert text.count("first half") == 1
+        assert text.count("second half") == 1
+        assert "\n2\n" in (tmp_path / "video.srt").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("cuda_retries", [0, 1, 3])
+@pytest.mark.parametrize("cpu_fallback", [False, True])
+def test_cuda_retry_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cuda_retries: int, cpu_fallback: bool
+) -> None:
+    attempted: list[str] = []
+
+    def fake_transcribe(path, config, start_time=0.0):
+        attempted.append(config.device)
+        if config.device == "cuda":
+            raise OutOfMemoryError("OOM")
+        return _fake_transcribe(path, config, start_time)
+
+    monkeypatch.setattr(cli, "transcribe", fake_transcribe)
+    result = cli.run_transcribe(
+        str(tmp_path / "video.wav"),
+        "tiny",
+        "cuda",
+        "int8",
+        None,
+        1,
+        cuda_retries=cuda_retries,
+        cpu_fallback=cpu_fallback,
+    )
+    assert result == (0 if cpu_fallback else 1)
+    assert attempted == ["cuda"] * (cuda_retries + 1) + (["cpu"] if cpu_fallback else [])
+
+
+@pytest.mark.parametrize("cuda_retries", [0, 1, 2])
+@pytest.mark.parametrize("cpu_fallback", [False, True])
+def test_cuda_keeps_retrying_while_progressing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cuda_retries: int, cpu_fallback: bool
+) -> None:
+    attempted: list[tuple[str, float]] = []
+
+    def progress_then_oom(start_time):
+        yield Segment(start=start_time, end=start_time + 1, text=f"part {int(start_time)}")
+        raise OutOfMemoryError("OOM after progress")
+
+    def fake_transcribe(path, config, start_time=0.0):
+        attempted.append((config.device, start_time))
+        assert len(attempted) <= 6
+        info = TranscriptionInfo(language="en", language_probability=0.9, duration=6.0)
+        if start_time < 5:
+            return progress_then_oom(start_time), info
+        return iter([Segment(start=5.0, end=6.0, text="final")]), info
+
+    monkeypatch.setattr(cli, "transcribe", fake_transcribe)
+    media_file = tmp_path / "video.wav"
+    assert (
+        cli.run_transcribe(
+            str(media_file),
+            "tiny",
+            "cuda",
+            "int8",
+            None,
+            1,
+            cuda_retries=cuda_retries,
+            cpu_fallback=cpu_fallback,
+        )
+        == 0
+    )
+    assert attempted == [("cuda", float(position)) for position in range(6)]
+    txt = media_file.with_suffix(".txt").read_text(encoding="utf-8")
+    for position in range(5):
+        assert txt.count(f"part {position}") == 1
+    assert "\n6\n" in media_file.with_suffix(".srt").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("stage", ["load", "stream"])
+@pytest.mark.parametrize("cpu_fallback", [False, True])
+def test_progress_resets_stalled_retry_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stage: str, cpu_fallback: bool
+) -> None:
+    attempted: list[tuple[str, float]] = []
+
+    def stalled_segments(start_time):
+        yield Segment(start=start_time, end=start_time, text=" ")
+        raise OutOfMemoryError("OOM without progress")
+
+    def progressing_segments():
+        yield Segment(start=0.0, end=1.0, text="saved")
+        raise OutOfMemoryError("OOM after progress")
+
+    def fake_transcribe(path, config, start_time=0.0):
+        attempted.append((config.device, start_time))
+        assert len(attempted) <= 6
+        info = TranscriptionInfo(language="en", language_probability=0.9, duration=2.0)
+        if config.device == "cpu":
+            return iter([Segment(start=1.0, end=2.0, text="remaining")]), info
+        if len(attempted) == 2:
+            return progressing_segments(), info
+        if stage == "load":
+            raise OutOfMemoryError("OOM without progress")
+        return stalled_segments(start_time), info
+
+    monkeypatch.setattr(cli, "transcribe", fake_transcribe)
+    result = cli.run_transcribe(
+        str(tmp_path / "video.wav"),
+        "tiny",
+        "cuda",
+        "int8",
+        None,
+        1,
+        cuda_retries=2,
+        cpu_fallback=cpu_fallback,
+    )
+    assert result == (0 if cpu_fallback else 1)
+    expected = [("cuda", 0.0), ("cuda", 0.0)] + [("cuda", 1.0)] * 3
+    assert attempted == expected + ([("cpu", 1.0)] if cpu_fallback else [])
+    assert (tmp_path / "video.txt").read_text(encoding="utf-8").count("saved") == 1
+
+
+def test_cpu_oom_does_not_retry_forever(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    attempted: list[str] = []
+
+    def fake_transcribe(path, config, start_time=0.0):
+        attempted.append(config.device)
+        assert len(attempted) <= 2
+        raise OutOfMemoryError("OOM")
+
+    monkeypatch.setattr(cli, "transcribe", fake_transcribe)
+    assert (
+        cli.run_transcribe(
+            str(tmp_path / "video.wav"), "tiny", "cuda", "int8", None, 1, cuda_retries=0
+        )
+        == 1
+    )
+    assert attempted == ["cuda", "cpu"]
+
+
+def test_negative_cuda_retries_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    mocked_transcribe = MagicMock()
+    monkeypatch.setattr(cli, "transcribe", mocked_transcribe)
+    assert cli.run_transcribe("video.wav", "tiny", "cuda", "int8", None, 1, cuda_retries=-1) == 1
+    mocked_transcribe.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("duration", "position", "expected"),
+    [
+        (10.0, 2.0, "remaining ~00:00:16"),
+        (0.0, 2.0, "remaining unknown"),
+        (10.0, 0.0, "remaining unknown"),
+        (10.0, 12.0, "remaining ~00:00:00"),
+    ],
+)
+def test_transcription_eta(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    duration: float,
+    position: float,
+    expected: str,
+) -> None:
+    def fake_transcribe(path, config, start_time=0.0):
+        info = TranscriptionInfo(language="en", language_probability=0.9, duration=duration)
+        return iter([Segment(start=0.0, end=position, text="hello")]), info
+
+    clock = iter([100.0, 110.0, 114.0, 114.0])
+    monkeypatch.setattr(cli.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(cli, "transcribe", fake_transcribe)
+    assert cli.run_transcribe(str(tmp_path / "video.wav"), "tiny", "cpu", "int8", None, 1) == 0
+    output = capsys.readouterr().out
+    assert "elapsed 00:00:14" in output
+    assert expected in output
+
+
+def test_eta_resets_after_cpu_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def failing_segments():
+        yield Segment(start=0.0, end=2.0, text="first")
+        raise OutOfMemoryError("OOM")
+
+    def fake_transcribe(path, config, start_time=0.0):
+        info = TranscriptionInfo(language="en", language_probability=0.9, duration=10.0)
+        if config.device == "cuda":
+            if start_time > 0:
+                raise OutOfMemoryError("OOM without progress")
+            return failing_segments(), info
+        return iter([Segment(start=2.0, end=4.0, text="second")]), info
+
+    clock = iter([100.0, 100.0, 102.0, 110.0, 114.0, 114.0])
+    monkeypatch.setattr(cli.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(cli, "transcribe", fake_transcribe)
+    assert (
+        cli.run_transcribe(
+            str(tmp_path / "video.wav"), "tiny", "cuda", "int8", None, 1, cuda_retries=0
+        )
+        == 0
+    )
+    output = capsys.readouterr().out
+    assert "elapsed 00:00:14, remaining ~00:00:12" in output
+
+
+@pytest.mark.parametrize("source", ["local", "url"])
+def test_resume_after_ctrl_c(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    source: str,
+) -> None:
+    media_file = tmp_path / "video.wav"
+    file = str(media_file) if source == "local" else "https://example.com/video"
+    if source == "url":
+        monkeypatch.setattr(cli, "download_video", lambda *args, **kwargs: media_file)
+    attempts: list[tuple[str, float]] = []
+
+    def interrupted_segments():
+        yield Segment(start=0.0, end=1.125, text="first half")
+        raise KeyboardInterrupt
+
+    def fake_transcribe(path, config, start_time=0.0):
+        attempts.append((config.device, start_time))
+        info = TranscriptionInfo(language="en", language_probability=0.9, duration=2.5)
+        if len(attempts) == 1:
+            return interrupted_segments(), info
+        return iter([Segment(start=1.125, end=2.5, text="second half")]), info
+
+    monkeypatch.setattr(cli, "transcribe", fake_transcribe)
+    assert cli.run_transcribe(file, "tiny", "cuda", "int8", None, 1) == 130
+    assert "--resume" in capsys.readouterr().err
+    saved_txt = media_file.with_suffix(".txt").read_bytes()
+    saved_srt = media_file.with_suffix(".srt").read_bytes()
+    assert cli.run_transcribe(file, "tiny", "cuda", "int8", None, 1, resume=True) == 0
+    assert attempts == [("cuda", 0.0), ("cuda", 1.125)]
+    new_txt = media_file.with_suffix(".txt").read_bytes()
+    new_srt = media_file.with_suffix(".srt").read_bytes()
+    assert new_txt.startswith(saved_txt)
+    assert new_srt.startswith(saved_srt)
+    assert new_txt.count(b"first half") == 1
+    assert new_txt.count(b"second half") == 1
+    assert b"\n2\n" in new_srt
+
+
+def test_resume_then_cuda_oom_preserves_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    media_file = tmp_path / "video.wav"
+    with cli.TranscriptWriter(
+        media_file.with_suffix(".txt"), media_file.with_suffix(".srt")
+    ) as writer:
+        writer.write_segment(0.0, 1.125, "saved segment")
+    attempts: list[float] = []
+
+    def failing_segments():
+        yield Segment(start=1.125, end=1.5, text="   ")
+        yield Segment(start=1.5, end=2.0, text="new segment")
+        raise OutOfMemoryError("OOM")
+
+    def fake_transcribe(path, config, start_time=0.0):
+        attempts.append(start_time)
+        info = TranscriptionInfo(language="en", language_probability=0.9, duration=3.0)
+        if len(attempts) == 1:
+            return failing_segments(), info
+        return iter([Segment(start=2.0, end=3.0, text="final segment")]), info
+
+    monkeypatch.setattr(cli, "transcribe", fake_transcribe)
+    assert cli.run_transcribe(str(media_file), "tiny", "cuda", "int8", None, 1, resume=True) == 0
+    assert attempts == [1.125, 2.0]
+    srt = media_file.with_suffix(".srt").read_text(encoding="utf-8")
+    assert "\n2\n" in srt
+    assert "\n3\n" in srt
+    assert "\n4\n" not in srt
+    assert srt.count("saved segment") == 1
+
+
+def test_resume_rejects_missing_srt_without_overwriting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    media_file = tmp_path / "video.wav"
+    txt_path = media_file.with_suffix(".txt")
+    txt_path.write_text("partial transcript", encoding="utf-8")
+    mocked_transcribe = MagicMock()
+    monkeypatch.setattr(cli, "transcribe", mocked_transcribe)
+    assert cli.run_transcribe(str(media_file), "tiny", "cuda", "int8", None, 1, resume=True) == 1
+    mocked_transcribe.assert_not_called()
+    assert txt_path.read_text(encoding="utf-8") == "partial transcript"
+
+
+def test_resume_without_output_starts_normally(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(cli, "transcribe", _fake_transcribe)
+    media_file = tmp_path / "video.wav"
+    assert cli.run_transcribe(str(media_file), "tiny", "cpu", "int8", None, 1, resume=True) == 0
+    assert media_file.with_suffix(".srt").read_text(encoding="utf-8").startswith("1\n")
 
 
 def test_run_transcribe_with_summarize(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

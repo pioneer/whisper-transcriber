@@ -14,15 +14,18 @@ Ti Mobile).
 - Streams segments as they are produced — never buffers the whole
   transcript in memory, so hours-long files are fine.
 - Live progress: detected language, model/device, media position / total
-  duration, percentage complete, and real (wall-clock) time elapsed.
+  duration, percentage complete, real (wall-clock) time elapsed, and estimated
+  transcription time remaining (based on the current attempt's speed).
 - Voice activity detection (VAD) enabled by default.
 - Automatic language detection, or pass `--language=uk` / `--language=ru`
   explicitly.
-- Clean Ctrl+C handling — partial output is kept, not corrupted.
+- Clean Ctrl+C handling — partial output is kept; pass `--resume` on the next
+  invocation to continue from the last completed segment.
 - Fails loudly (non-zero exit + clear message) if CUDA was requested but
   isn't usable at all — never silently falls back to CPU. If CUDA runs out
-  of VRAM partway through, it loudly resumes on CPU from where it left off
-  by default (pass `--no-cpu-fallback` to fail instead).
+  of VRAM, it keeps resuming on CUDA while progress advances. If CUDA stalls,
+  it allows two additional attempts without progress, then loudly resumes on
+  CPU. Configure `--cuda-retries` or disable CPU fallback with `--no-cpu-fallback`.
 - `uv run inv diagnose` reports Python/OS/library/CUDA state without
   depending on PyTorch.
 
@@ -71,10 +74,16 @@ uv run inv transcribe path/to/video.mp4 --summarize
 uv run inv transcribe path/to/video.mp4 --summarize --summary-model=gpt-4o-mini
 uv run inv transcribe path/to/video.mp4 --summarize --summary-base-url=http://localhost:11434/v1 --summary-model=llama3.2
 
-# Use CUDA, but retry on CPU instead of failing if the GPU runs out of VRAM
+# Stay on CUDA while progressing; allow two stalled retries before CPU fallback
 uv run inv transcribe path/to/video.mp4 --cpu-fallback
 
-# Disable the default CPU fallback and fail immediately on a GPU OOM instead
+# Allow four additional CUDA attempts without progress before switching to CPU
+uv run inv transcribe path/to/video.mp4 --cuda-retries=4
+
+# Switch to CPU on the first OOM without progress (still resume CUDA if progressing)
+uv run inv transcribe path/to/video.mp4 --cuda-retries=0
+
+# Fail when stalled retries are exhausted instead of switching to CPU
 uv run inv transcribe path/to/video.mp4 --no-cpu-fallback
 
 # Full override
@@ -89,6 +98,33 @@ uv run inv test
 ```
 
 This produces `video.txt` and `video.srt` next to `video.mp4`.
+
+### Resuming after Ctrl-C
+
+Run the same command with `--resume` to append to the saved TXT/SRT pair:
+
+```bash
+uv run inv transcribe path/to/video.mp4 --resume --summarize
+uv run inv transcribe "https://youtu.be/ShWbeRj0QUk" --resume --summarize
+
+# Keep retries on CUDA only, stopping if the stalled retry limit is exhausted
+uv run inv transcribe path/to/video.mp4 --resume --cuda-retries=4 --no-cpu-fallback
+```
+
+Resume uses the last completed subtitle's millisecond end timestamp and preserves
+subtitle numbering. Work interrupted within a segment is redone. Use the same
+unchanged media and transcription settings; both output files must remain together.
+For URLs, keep the same URL and download directory. No existing output starts a
+fresh transcription; incomplete or mismatched files produce an error without being
+overwritten. Without `--resume`, rerunning replaces the transcript as before.
+Resumed transcription skips VAD, as with automatic OOM retries.
+
+A restarted command uses its requested device (`cuda` by default), even if the
+previous process fell back to CPU. CUDA retries can recover transient memory
+pressure, but cannot guarantee success if the model exceeds available VRAM.
+The CUDA retry budget applies only to attempts without progress; each advancing
+attempt resets it. `--no-cpu-fallback` keeps attempts on CUDA and fails only
+after the stalled retry budget is exhausted.
 
 ### Transcribing from a video URL
 
@@ -294,11 +330,21 @@ eval "$(uv run inv cuda-env)"
 By design, this tool **never silently falls back from CUDA to CPU** — if
 you asked for `--device=cuda` and it can't be used *at all* (no device,
 missing libraries, etc.), you get a clear error and a non-zero exit code,
-not a slow surprise. The one exception is running out of VRAM mid-transcription:
-by default (`--cpu-fallback`, on unless you pass `--no-cpu-fallback`) it prints
-a clear message and resumes on CPU from wherever the GPU attempt left off
-(already-written segments are kept, not re-transcribed) instead of failing —
-keeping the same model/quality, just slower.
+not a slow surprise. For VRAM exhaustion at model load or mid-transcription,
+it keeps resuming on CUDA whenever the saved media position advances, resetting
+the stalled retry counter. If an attempt makes no progress, it allows up to
+`--cuda-retries` additional attempts (default: 2) at that position. The previous
+iterator is released and garbage collected before retrying. Progress-making
+OOMs do not consume the budget, even with `--cuda-retries=0`.
+After stalled retry exhaustion, `--cpu-fallback` (enabled by default) resumes on CPU;
+`--no-cpu-fallback` fails instead. Each attempt resumes from the last completed
+segment, preserving existing output and the same model/quality.
+
+The progress line includes approximate transcription time remaining. It uses
+media progress and wall time from the current attempt, resetting after retries
+or a device switch. Unknown duration or no progress shows `remaining unknown`.
+The estimate excludes subsequent AI summarization and can fluctuate with silence
+or varying speech density.
 
 ## Project layout
 
@@ -340,6 +386,7 @@ video_download_dir = "~/Video"
 video_download_command = "yt-dlp -o {output} {url}"
 delete_video = False
 cpu_fallback = True
+cuda_retries = 2
 ```
 
 Override any of these per-run via CLI flags (see Usage above).

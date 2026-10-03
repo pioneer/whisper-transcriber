@@ -6,6 +6,7 @@ they can be unit-tested without any dependency on faster-whisper or a GPU.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from types import TracebackType
 
@@ -92,6 +93,57 @@ class TranscriptWriter:
 def output_paths_for(media_path: Path) -> tuple[Path, Path]:
     """Return the ``(txt_path, srt_path)`` placed next to the source media file."""
     return media_path.with_suffix(".txt"), media_path.with_suffix(".srt")
+
+
+def read_resume_state(txt_path: Path, srt_path: Path) -> tuple[float, int]:
+    """Validate paired transcript outputs and return the last end time and cue count."""
+    if not txt_path.exists() and not srt_path.exists():
+        return 0.0, 0
+    if not txt_path.is_file() or not srt_path.is_file():
+        raise ValueError("Resuming requires both the existing TXT and SRT files.")
+
+    timestamp_pattern = re.compile(
+        r"(\d{2,}):([0-5]\d):([0-5]\d),(\d{3}) --> "
+        r"(\d{2,}):([0-5]\d):([0-5]\d),(\d{3})"
+    )
+    txt_pattern = re.compile(r"\[\d{2,}:\d{2}:\d{2} \u2192 \d{2,}:\d{2}:\d{2}\] ")
+    end_time = 0.0
+    cue_count = 0
+    with txt_path.open(encoding="utf-8") as txt, srt_path.open(encoding="utf-8") as srt:
+        while index_line := srt.readline():
+            if index_line.strip() != str(cue_count + 1):
+                raise ValueError("SRT cue numbering is invalid; cannot safely resume.")
+            match = timestamp_pattern.fullmatch(srt.readline().strip())
+            if match is None:
+                raise ValueError("SRT timestamps are invalid; cannot safely resume.")
+            values = [int(value) for value in match.groups()]
+            start = values[0] * 3600 + values[1] * 60 + values[2] + values[3] / 1000
+            end = values[4] * 3600 + values[5] * 60 + values[6] + values[7] / 1000
+            if end < start or end < end_time:
+                raise ValueError("SRT timestamps are out of order; cannot safely resume.")
+
+            text_lines: list[str] = []
+            while True:
+                line = srt.readline()
+                if not line:
+                    raise ValueError("SRT ends with an incomplete cue; cannot safely resume.")
+                if not line.strip():
+                    break
+                text_lines.append(line)
+            if not text_lines:
+                raise ValueError("SRT contains an empty cue; cannot safely resume.")
+            txt_line = txt.readline()
+            prefix = txt_pattern.match(txt_line)
+            if prefix is None:
+                raise ValueError("TXT and SRT do not match; cannot safely resume.")
+            saved_text = txt_line[prefix.end() :] + "".join(txt.readline() for _ in text_lines[1:])
+            if saved_text != "".join(text_lines):
+                raise ValueError("TXT and SRT do not match; cannot safely resume.")
+            cue_count += 1
+            end_time = end
+        if txt.read(1):
+            raise ValueError("TXT has unmatched content; cannot safely resume.")
+    return end_time, cue_count
 
 
 def summary_output_path_for(path: Path) -> Path:

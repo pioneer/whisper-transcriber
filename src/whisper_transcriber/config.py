@@ -19,10 +19,9 @@ DEFAULT_BEAM_SIZE = 5
 DEFAULT_VAD_FILTER = True
 # None means "automatic language detection".
 DEFAULT_LANGUAGE: str | None = None
-# If a CUDA out-of-memory error occurs, loudly retry on CPU instead of
-# failing outright (never silently — a message is always printed first).
-# Pass --no-cpu-fallback to disable and fail immediately instead.
+# After CUDA retries without progress are exhausted, allow CPU fallback.
 DEFAULT_CPU_FALLBACK = True
+DEFAULT_CUDA_RETRIES = 2
 
 # Where videos downloaded from a URL are saved.
 DEFAULT_VIDEO_DOWNLOAD_DIR = "~/Video"
