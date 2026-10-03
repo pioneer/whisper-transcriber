@@ -175,6 +175,7 @@ def transcribe(
         raw_segments, raw_info = model.transcribe(
             str(path),
             language=config.language,
+            multilingual=config.multilingual,
             beam_size=config.beam_size,
             vad_filter=config.vad_filter,
             clip_timestamps=str(start_time) if start_time > 0 else "0",

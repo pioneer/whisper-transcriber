@@ -25,6 +25,7 @@ from whisper_transcriber.config import (
     DEFAULT_DEVICE,
     DEFAULT_DISPLAY_SUMMARY,
     DEFAULT_MODEL,
+    DEFAULT_MULTILINGUAL,
     DEFAULT_SUMMARIZE,
     DEFAULT_SUMMARY_LANGUAGE,
     DEFAULT_SUMMARY_MODEL,
@@ -82,6 +83,7 @@ def transcribe(
     display_summary: bool = DEFAULT_DISPLAY_SUMMARY,
     cuda_retries: int = DEFAULT_CUDA_RETRIES,
     resume: bool = False,
+    multilingual: bool = DEFAULT_MULTILINGUAL,
 ) -> None:
     """Transcribe a video/audio file, or a video URL, to <file>.txt and <file>.srt."""
     _ensure_cuda_ld_library_path(device)
@@ -110,6 +112,7 @@ def transcribe(
         display_summary=display_summary,
         cuda_retries=cuda_retries,
         resume=resume,
+        multilingual=multilingual,
     )
     raise SystemExit(exit_code)
 

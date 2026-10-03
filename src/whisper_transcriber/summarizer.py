@@ -699,7 +699,6 @@ def call_chat_completion(
     payload = {
         "model": resolved.model,
         "messages": messages,
-        "temperature": 0.3,
     }
 
     req = urllib.request.Request(

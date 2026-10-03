@@ -208,6 +208,9 @@ def test_summarize_text_single_chunk() -> None:
         result = summarize_text("This is a transcript text.", cfg)
         assert "# Executive Summary" in result
         mock_urlopen.assert_called_once()
+        request = mock_urlopen.call_args.args[0]
+        payload = json.loads(request.data.decode("utf-8"))
+        assert "temperature" not in payload
 
 
 def test_summarize_text_multi_chunk() -> None:

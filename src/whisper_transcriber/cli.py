@@ -18,6 +18,7 @@ from .config import (
     DEFAULT_CUDA_RETRIES,
     DEFAULT_DELETE_VIDEO,
     DEFAULT_DISPLAY_SUMMARY,
+    DEFAULT_MULTILINGUAL,
     DEFAULT_SUMMARIZE,
     DEFAULT_SUMMARY_BASE_URL,
     DEFAULT_SUMMARY_MODEL,
@@ -34,6 +35,7 @@ from .summarizer import (
     load_dotenv,
     load_transcript_text,
     resolve_language_name,
+    resolve_summary_config,
     resolve_transcript_path,
     summarize_file,
 )
@@ -69,6 +71,7 @@ def run_transcribe(
     display_summary: bool = DEFAULT_DISPLAY_SUMMARY,
     cuda_retries: int = DEFAULT_CUDA_RETRIES,
     resume: bool = False,
+    multilingual: bool = DEFAULT_MULTILINGUAL,
 ) -> int:
     """Run a full transcription and write TXT/SRT next to the source file.
 
@@ -171,6 +174,7 @@ def run_transcribe(
             compute_type=compute_type,
             beam_size=beam_size,
             language=language,
+            multilingual=multilingual,
         )
 
         print(
@@ -343,6 +347,7 @@ def run_summarize(
         language=resolved_lang,
         display=display,
     )
+    config = resolve_summary_config(config)
 
     print(f"Summarizing transcript for: {path}", flush=True)
     print(f"Model: {config.model}", flush=True)

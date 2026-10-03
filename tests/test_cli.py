@@ -673,6 +673,33 @@ def test_run_summarize_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert (tmp_path / "meeting.summary.md").exists()
 
 
+@pytest.mark.parametrize("model", [None, "explicit-model"])
+def test_run_summarize_reports_resolved_model(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    model: str | None,
+) -> None:
+    txt_file = tmp_path / "meeting.txt"
+    txt_file.write_text("Spoken words", encoding="utf-8")
+    monkeypatch.setenv("SUMMARY_MODEL", "gpt-6.1-sol")
+    monkeypatch.setenv("SUMMARY_API_KEY", "test-key")
+    expected_model = model or "gpt-6.1-sol"
+
+    def fake_summarize_file(path, config, output_path=None, on_chunk_progress=None):
+        assert config.model == expected_model
+        return path.with_suffix(".summary.md"), "# Summary"
+
+    monkeypatch.setattr(cli, "summarize_file", fake_summarize_file)
+    exit_code = (
+        cli.run_summarize(file=str(txt_file), model=model)
+        if model is not None
+        else cli.run_summarize(file=str(txt_file))
+    )
+    assert exit_code == 0
+    assert f"Model: {expected_model}" in capsys.readouterr().out
+
+
 def test_run_summarize_custom_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     txt_file = tmp_path / "meeting.txt"
     txt_file.write_text("Spoken words", encoding="utf-8")

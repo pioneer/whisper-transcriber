@@ -33,7 +33,9 @@ def test_validate_media_path_unsupported_extension(tmp_path: Path) -> None:
         validate_media_path(bad_file)
 
 
-@pytest.mark.parametrize("suffix", [".mp4", ".mkv", ".webm", ".mp3", ".wav", ".m4a"])
+@pytest.mark.parametrize(
+    "suffix", [".mp4", ".mkv", ".webm", ".mp3", ".wav", ".m4a", ".avi", ".AVI"]
+)
 def test_validate_media_path_supported_extensions(tmp_path: Path, suffix: str) -> None:
     media_file = tmp_path / f"media{suffix}"
     media_file.write_bytes(b"fake data")
@@ -48,7 +50,8 @@ def _mock_raw_segment(start: float, end: float, text: str) -> MagicMock:
     return segment
 
 
-def test_transcribe_yields_segments_and_info(tmp_path: Path) -> None:
+@pytest.mark.parametrize("multilingual", [False, True])
+def test_transcribe_yields_segments_and_info(tmp_path: Path, multilingual: bool) -> None:
     media_file = tmp_path / "sample.wav"
     media_file.write_bytes(b"fake data")
 
@@ -64,7 +67,7 @@ def test_transcribe_yields_segments_and_info(tmp_path: Path) -> None:
     mock_model = MagicMock()
     mock_model.transcribe.return_value = (iter(raw_segments), raw_info)
 
-    config = TranscriptionConfig(language="uk")
+    config = TranscriptionConfig(language="uk", multilingual=multilingual)
     segments_iter, info = transcribe(media_file, config, model=mock_model)
 
     assert info.language == "uk"
@@ -80,6 +83,7 @@ def test_transcribe_yields_segments_and_info(tmp_path: Path) -> None:
     mock_model.transcribe.assert_called_once_with(
         str(media_file),
         language="uk",
+        multilingual=multilingual,
         beam_size=config.beam_size,
         vad_filter=config.vad_filter,
         clip_timestamps="0",
@@ -104,6 +108,7 @@ def test_transcribe_passes_start_time_as_clip_timestamps(tmp_path: Path) -> None
     mock_model.transcribe.assert_called_once_with(
         str(media_file),
         language=config.language,
+        multilingual=False,
         beam_size=config.beam_size,
         vad_filter=config.vad_filter,
         clip_timestamps="42.5",

@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 #: Supported media file extensions (video and audio).
-SUPPORTED_EXTENSIONS: frozenset[str] = frozenset({".mp4", ".mkv", ".webm", ".mp3", ".wav", ".m4a"})
+SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(
+    {".mp4", ".mkv", ".webm", ".mp3", ".wav", ".m4a", ".avi"}
+)
 
 # Available models: tiny, base, small, medium, large, large-v3
 DEFAULT_MODEL = "large-v3"
@@ -19,6 +21,7 @@ DEFAULT_BEAM_SIZE = 5
 DEFAULT_VAD_FILTER = True
 # None means "automatic language detection".
 DEFAULT_LANGUAGE: str | None = None
+DEFAULT_MULTILINGUAL = False
 # After CUDA retries without progress are exhausted, allow CPU fallback.
 DEFAULT_CPU_FALLBACK = True
 DEFAULT_CUDA_RETRIES = 2
@@ -55,6 +58,7 @@ class TranscriptionConfig:
     beam_size: int = DEFAULT_BEAM_SIZE
     vad_filter: bool = DEFAULT_VAD_FILTER
     language: str | None = DEFAULT_LANGUAGE
+    multilingual: bool = DEFAULT_MULTILINGUAL
 
 
 @dataclass(frozen=True, slots=True)
