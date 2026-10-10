@@ -12,12 +12,17 @@ from pathlib import Path
 
 from . import diagnostics as diag
 from .config import (
+    DEFAULT_BEAM_SIZE,
+    DEFAULT_COMPUTE_TYPE,
     DEFAULT_COOKIES_FILE,
     DEFAULT_COOKIES_FROM_BROWSER,
     DEFAULT_CPU_FALLBACK,
     DEFAULT_CUDA_RETRIES,
     DEFAULT_DELETE_VIDEO,
+    DEFAULT_DEVICE,
     DEFAULT_DISPLAY_SUMMARY,
+    DEFAULT_GEMINI_MODEL,
+    DEFAULT_MODEL,
     DEFAULT_MULTILINGUAL,
     DEFAULT_SUMMARIZE,
     DEFAULT_SUMMARY_BASE_URL,
@@ -28,7 +33,13 @@ from .config import (
     TranscriptionConfig,
 )
 from .downloader import VideoDownloadError, download_video, is_video_url
-from .output import TranscriptWriter, output_paths_for, print_markdown, read_resume_state
+from .output import (
+    TranscriptWriter,
+    output_paths_for,
+    print_markdown,
+    read_resume_state,
+    summary_output_path_for,
+)
 from .summarizer import (
     SummaryError,
     detect_text_language,
@@ -40,6 +51,7 @@ from .summarizer import (
     summarize_file,
 )
 from .transcriber import OutOfMemoryError, TranscriptionError, is_model_cached, transcribe
+from .youtube import summarize_youtube, youtube_video_id
 
 
 def _format_hms(seconds: float) -> str:
@@ -341,12 +353,22 @@ def run_summarize(
     output: str | None = None,
     language: str | None = None,
     display: bool = DEFAULT_DISPLAY_SUMMARY,
+    gemini: bool = True,
+    gemini_api_key: str | None = None,
+    gemini_model: str = DEFAULT_GEMINI_MODEL,
+    transcription_model: str = DEFAULT_MODEL,
+    device: str = DEFAULT_DEVICE,
+    compute_type: str = DEFAULT_COMPUTE_TYPE,
+    video_download_dir: str = DEFAULT_VIDEO_DOWNLOAD_DIR,
+    video_download_command: str = DEFAULT_VIDEO_DOWNLOAD_COMMAND,
+    cookies_from_browser: str | None = DEFAULT_COOKIES_FROM_BROWSER,
+    cookies: str | None = DEFAULT_COOKIES_FILE,
+    delete_video: bool = DEFAULT_DELETE_VIDEO,
 ) -> int:
-    """Generate an AI summary from a transcript file or media file.
+    """Summarize a transcript, or try Gemini before transcribing a video URL.
 
     Returns the process exit code (0 on success).
     """
-    path = Path(file).expanduser().resolve()
     target_output = Path(output).expanduser().resolve() if output else None
 
     resolved_lang = resolve_language_name(language)
@@ -360,6 +382,84 @@ def run_summarize(
         display=display,
     )
     config = resolve_summary_config(config)
+
+    downloaded_path: Path | None = None
+    if is_video_url(file):
+        video_id = youtube_video_id(file)
+        if gemini and video_id is not None:
+            print(f"Trying Gemini summary for: {file}", flush=True)
+            effective_model = os.environ.get("GEMINI_MODEL", gemini_model)
+            if gemini_model != DEFAULT_GEMINI_MODEL:
+                effective_model = gemini_model
+            try:
+                summary_text = summarize_youtube(
+                    file,
+                    config,
+                    api_key=gemini_api_key or os.environ.get("GEMINI_API_KEY"),
+                    model=effective_model,
+                )
+            except SummaryError as exc:
+                print(
+                    f"Gemini unavailable: {exc} Falling back to local transcription.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            except KeyboardInterrupt:
+                print("\nSummary cancelled by user.", file=sys.stderr)
+                return 130
+            else:
+                summary_path = target_output or summary_output_path_for(
+                    Path(video_download_dir).expanduser() / f"youtube.{video_id}.mp4"
+                )
+                try:
+                    summary_path.parent.mkdir(parents=True, exist_ok=True)
+                    summary_path.write_text(summary_text + "\n", encoding="utf-8")
+                except OSError as exc:
+                    print(f"Error saving summary: {exc}", file=sys.stderr)
+                    return 1
+                print(f"Gemini summary saved to: {summary_path}", flush=True)
+                print("Skipped video download and local transcription.", flush=True)
+                if config.display:
+                    print_markdown(summary_text)
+                return 0
+        else:
+            print("Using local transcription for this video URL.", flush=True)
+
+        try:
+            downloaded_path = download_video(
+                file,
+                Path(video_download_dir).expanduser(),
+                video_download_command,
+                cookies_from_browser=(
+                    cookies_from_browser
+                    or os.environ.get("YTDLP_COOKIES_FROM_BROWSER")
+                    or os.environ.get("COOKIES_FROM_BROWSER")
+                ),
+                cookies_file=(
+                    cookies
+                    or os.environ.get("YTDLP_COOKIES_FILE")
+                    or os.environ.get("COOKIES_FILE")
+                ),
+            )
+        except VideoDownloadError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+        except KeyboardInterrupt:
+            print("\nDownload cancelled by user.", file=sys.stderr)
+            return 130
+        result = run_transcribe(
+            str(downloaded_path),
+            model=transcription_model,
+            device=device,
+            compute_type=compute_type,
+            language=None,
+            beam_size=DEFAULT_BEAM_SIZE,
+        )
+        if result != 0:
+            return result
+        path = downloaded_path
+    else:
+        path = Path(file).expanduser().resolve()
 
     print(f"Summarizing transcript for: {path}", flush=True)
     print(f"Model: {config.model}", flush=True)
@@ -399,12 +499,20 @@ def run_summarize(
             output_path=target_output,
             on_chunk_progress=_on_chunk,
         )
-    except SummaryError as exc:
+    except (SummaryError, OSError) as exc:
         print(f"\nError: {exc}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
         print("\nSummary cancelled by user.", file=sys.stderr)
         return 130
+    finally:
+        if delete_video and downloaded_path is not None:
+            try:
+                downloaded_path.unlink(missing_ok=True)
+            except OSError as exc:
+                print(f"Error deleting downloaded video: {exc}", file=sys.stderr)
+                return 1
+            print(f"Deleted downloaded video: {downloaded_path}")
 
     elapsed = time.monotonic() - start_time
     print(f"\nSummary generated in {elapsed:.1f}s. Wrote to:")

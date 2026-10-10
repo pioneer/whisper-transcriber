@@ -24,6 +24,7 @@ from whisper_transcriber.config import (
     DEFAULT_DELETE_VIDEO,
     DEFAULT_DEVICE,
     DEFAULT_DISPLAY_SUMMARY,
+    DEFAULT_GEMINI_MODEL,
     DEFAULT_MODEL,
     DEFAULT_MULTILINGUAL,
     DEFAULT_SUMMARIZE,
@@ -129,8 +130,24 @@ def summarize(
     language: str | None = DEFAULT_SUMMARY_LANGUAGE,
     display: bool = DEFAULT_DISPLAY_SUMMARY,
     display_summary: bool = DEFAULT_DISPLAY_SUMMARY,
+    gemini: bool = True,
+    gemini_api_key: str | None = None,
+    gemini_model: str = DEFAULT_GEMINI_MODEL,
+    transcription_model: str = DEFAULT_MODEL,
+    device: str = DEFAULT_DEVICE,
+    compute_type: str = DEFAULT_COMPUTE_TYPE,
+    video_download_dir: str = DEFAULT_VIDEO_DOWNLOAD_DIR,
+    video_download_command: str = DEFAULT_VIDEO_DOWNLOAD_COMMAND,
+    cookies_from_browser: str | None = DEFAULT_COOKIES_FROM_BROWSER,
+    cookies: str | None = DEFAULT_COOKIES_FILE,
+    delete_video: bool = DEFAULT_DELETE_VIDEO,
 ) -> None:
-    """Generate an AI summary from a transcript file (TXT/SRT) or media file."""
+    """Summarize a transcript or video URL (Gemini first, then local transcription)."""
+    from whisper_transcriber.downloader import is_video_url
+
+    if is_video_url(file):
+        _ensure_cuda_ld_library_path(device)
+
     from whisper_transcriber.cli import run_summarize
 
     exit_code = run_summarize(
@@ -142,6 +159,17 @@ def summarize(
         output=output,
         language=language,
         display=display and display_summary,
+        gemini=gemini,
+        gemini_api_key=gemini_api_key,
+        gemini_model=gemini_model,
+        transcription_model=transcription_model,
+        device=device,
+        compute_type=compute_type,
+        video_download_dir=video_download_dir,
+        video_download_command=video_download_command,
+        cookies_from_browser=cookies_from_browser,
+        cookies=cookies,
+        delete_video=delete_video,
     )
     raise SystemExit(exit_code)
 

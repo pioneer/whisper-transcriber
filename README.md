@@ -217,6 +217,56 @@ uv run inv transcribe path/to/video.mp4 --summarize --no-display-summary
 
 For long recordings, multi-chunk map-reduce summarization is performed automatically to stay within LLM context windows.
 
+### YouTube summary only
+
+```bash
+# Summary only: try Gemini directly from the URL first
+uv run inv summary 'https://www.youtube.com/watch?v=VIDEO_ID'
+
+# Transcript AND summary: always download and transcribe locally
+uv run inv transcribe 'https://www.youtube.com/watch?v=VIDEO_ID' --summarize
+
+# Summary language and output path work with either summary provider
+uv run inv summary 'https://youtu.be/VIDEO_ID' --language=English --output=summary.md
+
+# Skip Gemini, or customize the local transcription fallback
+uv run inv summary 'https://youtu.be/VIDEO_ID' --no-gemini
+uv run inv summary 'https://youtu.be/VIDEO_ID' --transcription-model=small --device=cpu
+```
+
+Set `GEMINI_API_KEY` in your `.env` or shell to enable the direct route. Obtain a
+Gemini Developer API key from [Google AI Studio](https://aistudio.google.com/apikey);
+a Gemini app subscription alone does not supply API access. You can override
+`GEMINI_MODEL` (default `gemini-3.8-flash`) or pass `--gemini-model`.
+The transcript summarizer's `--model`, `--api-key`, and `--base-url` still configure
+the existing OpenAI-compatible provider, not Gemini.
+
+When Gemini succeeds, **no video is downloaded and no local transcription runs**.
+Only a Markdown summary is written, by default to
+`~/Video/youtube.<video-id>.summary.md` (or `--video-download-dir` / `--output`).
+No request to YouTube is made to discover the video title on this route.
+`summary` and `summarize` are aliases and behave identically.
+
+If the Gemini key is absent, the video is inaccessible, or the API fails, the
+command reports the reason and downloads/transcribes locally, then summarizes
+the transcript with the existing provider. This fallback requires the usual
+downloader, Whisper model, and transcript-summary provider configuration.
+Its TXT/SRT intermediates are retained; the summary is saved next to them unless
+`--output` is given. Download options, cookie authentication, and `--delete-video`
+are available on the summary command too. Downloaded media is kept by default.
+Existing local-file summary behavior is unchanged: it uses an existing TXT/SRT.
+
+Gemini receives the public YouTube URL and summary instructions; local media,
+transcripts, and browser cookies are not sent to Gemini. API usage may incur
+charges and is subject to Google's quotas and data policies. According to the
+[Gemini video documentation](https://ai.google.dev/gemini-api/docs/video-understanding),
+only public videos are supported (not private or unlisted videos), and free-tier
+YouTube input is limited to eight hours per day. Model summaries can be inaccurate;
+check important claims against the source.
+
+YouTube's in-page “Ask YouTube” AI is not used: there is no documented public API
+for this feature, and the tool does not automate the YouTube or Gemini web UI.
+
 ## Model recommendations for 4 GB VRAM
 
 | Model    | VRAM (approx, int8/float16) | Notes                                   |

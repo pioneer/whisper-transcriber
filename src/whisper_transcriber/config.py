@@ -46,6 +46,7 @@ DEFAULT_SUMMARY_CHUNK_SIZE = 40_000
 DEFAULT_SUMMARY_LANGUAGE: str | None = None
 DEFAULT_DISPLAY_SUMMARY = True
 DEFAULT_SUMMARIZE = False
+DEFAULT_GEMINI_MODEL = "gemini-3.8-flash"
 
 
 @dataclass(frozen=True, slots=True)
