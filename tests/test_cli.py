@@ -55,7 +55,7 @@ def test_run_transcribe_downloads_url_and_deletes_after(
     assert (tmp_path / "abc123.srt").exists()
 
 
-def test_run_transcribe_keeps_video_by_default(
+def test_run_transcribe_deletes_video_by_default(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     downloaded_file = tmp_path / "abc123.mp4"
@@ -82,7 +82,7 @@ def test_run_transcribe_keeps_video_by_default(
     )
 
     assert exit_code == 0
-    assert downloaded_file.exists()
+    assert not downloaded_file.exists()
 
 
 @pytest.mark.parametrize(

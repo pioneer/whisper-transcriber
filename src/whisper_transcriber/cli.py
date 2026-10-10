@@ -18,7 +18,6 @@ from .config import (
     DEFAULT_COOKIES_FROM_BROWSER,
     DEFAULT_CPU_FALLBACK,
     DEFAULT_CUDA_RETRIES,
-    DEFAULT_DELETE_VIDEO,
     DEFAULT_DEVICE,
     DEFAULT_DISPLAY_SUMMARY,
     DEFAULT_GEMINI_MODEL,
@@ -31,6 +30,7 @@ from .config import (
     DEFAULT_VIDEO_DOWNLOAD_DIR,
     SummaryConfig,
     TranscriptionConfig,
+    resolve_delete_video,
 )
 from .downloader import VideoDownloadError, download_video, is_video_url
 from .output import (
@@ -72,7 +72,7 @@ def run_transcribe(
     video_download_command: str = DEFAULT_VIDEO_DOWNLOAD_COMMAND,
     cookies_from_browser: str | None = DEFAULT_COOKIES_FROM_BROWSER,
     cookies: str | None = DEFAULT_COOKIES_FILE,
-    delete_video: bool = DEFAULT_DELETE_VIDEO,
+    delete_video: bool | None = None,
     cpu_fallback: bool = DEFAULT_CPU_FALLBACK,
     summarize: bool = DEFAULT_SUMMARIZE,
     summary_model: str = DEFAULT_SUMMARY_MODEL,
@@ -107,6 +107,11 @@ def run_transcribe(
         print("Error: --cuda-retries must be non-negative.", file=sys.stderr)
         return 1
     load_dotenv()
+    try:
+        delete_video = resolve_delete_video(delete_video)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
     effective_cookies_browser = (
         cookies_from_browser
         or os.environ.get("YTDLP_COOKIES_FROM_BROWSER")
@@ -363,7 +368,7 @@ def run_summarize(
     video_download_command: str = DEFAULT_VIDEO_DOWNLOAD_COMMAND,
     cookies_from_browser: str | None = DEFAULT_COOKIES_FROM_BROWSER,
     cookies: str | None = DEFAULT_COOKIES_FILE,
-    delete_video: bool = DEFAULT_DELETE_VIDEO,
+    delete_video: bool | None = None,
 ) -> int:
     """Summarize a transcript, or try Gemini before transcribing a video URL.
 
@@ -382,6 +387,11 @@ def run_summarize(
         display=display,
     )
     config = resolve_summary_config(config)
+    try:
+        delete_video = resolve_delete_video(delete_video)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
 
     downloaded_path: Path | None = None
     if is_video_url(file):

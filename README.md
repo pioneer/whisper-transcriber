@@ -154,8 +154,8 @@ uv run inv transcribe https://example.com/watch?v=abc123
 # Change the download folder (default: ~/Video)
 uv run inv transcribe https://example.com/watch?v=abc123 --video-download-dir=/data/videos
 
-# Delete the downloaded video once transcription finishes (default: kept)
-uv run inv transcribe https://example.com/watch?v=abc123 --delete-video
+# Keep the downloaded video once transcription finishes (default: deleted)
+uv run inv transcribe https://example.com/watch?v=abc123 --keep-video
 
 # Use a different download tool/command; {url} and {output} are substituted
 uv run inv transcribe https://example.com/watch?v=abc123 \
@@ -171,9 +171,18 @@ download folder, named after the video's title (e.g. `My Video.a1b2c3d4e5.mp4`,
 with a short tag derived from the URL). Re-running the same URL reuses that
 same destination path, so a finished download is skipped and an interrupted
 one is resumed instead of starting over — and if transcription itself fails
-(e.g. an out-of-memory error), the downloaded video is kept (unless
-`--delete-video` was passed and transcription succeeded), so the next run
-doesn't need to re-download it.
+(e.g. an out-of-memory error) or is interrupted, the downloaded video is kept,
+so the next run doesn't need to re-download it. After successful transcription,
+downloaded media is deleted by default; TXT/SRT and summaries remain.
+
+Retention priority is **CLI flags > `DELETE_VIDEO` in `.env` > default (`true`)**.
+Set `DELETE_VIDEO=false` to keep downloads by default. Use `--delete-video` to
+override that setting, or `--keep-video` to keep a download for one run.
+The flags are mutually exclusive. Boolean environment values accept
+`true/false`, `yes/no`, `on/off`, or `1/0` (case-insensitive); invalid values
+produce an error unless a CLI override is given. Local input files are never
+deleted. If summarization fails after transcription succeeds, the download is
+still deleted unless retention was requested; the transcript remains for retrying.
 
 ### TXT output format
 
@@ -268,8 +277,9 @@ command reports the reason and downloads/transcribes locally, then summarizes
 the transcript with the existing provider. This fallback requires the usual
 downloader, Whisper model, and transcript-summary provider configuration.
 Its TXT/SRT intermediates are retained; the summary is saved next to them unless
-`--output` is given. Download options, cookie authentication, and `--delete-video`
-are available on the summary command too. Downloaded media is kept by default.
+`--output` is given. Download options, cookie authentication, `--keep-video`, and
+`--delete-video` are available on the summary command too. Its downloaded media
+is deleted by default, with the same CLI/environment precedence as transcription.
 Existing local-file summary behavior is unchanged: it uses an existing TXT/SRT.
 
 Gemini receives the public YouTube URL and summary instructions; local media,
@@ -450,7 +460,7 @@ vad_filter = True
 language = None  # automatic detection
 video_download_dir = "~/Video"
 video_download_command = "yt-dlp -o {output} {url}"
-delete_video = False
+delete_video = True
 cpu_fallback = True
 cuda_retries = 2
 ```

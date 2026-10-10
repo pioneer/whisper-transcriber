@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 #: Supported media file extensions (video and audio).
@@ -37,7 +38,7 @@ DEFAULT_COOKIES_FROM_BROWSER: str | None = None
 # Path to a Netscape-format cookies.txt file for video downloads.
 DEFAULT_COOKIES_FILE: str | None = None
 # Whether to delete a downloaded video once it has been transcribed.
-DEFAULT_DELETE_VIDEO = False
+DEFAULT_DELETE_VIDEO = True
 
 # Default parameters for AI summarization.
 DEFAULT_SUMMARY_MODEL = "gpt-4o-mini"
@@ -47,6 +48,21 @@ DEFAULT_SUMMARY_LANGUAGE: str | None = None
 DEFAULT_DISPLAY_SUMMARY = True
 DEFAULT_SUMMARIZE = False
 DEFAULT_GEMINI_MODEL = "gemini-3.8-flash"
+
+
+def resolve_delete_video(override: bool | None) -> bool:
+    """Resolve command-line preference before environment and built-in default."""
+    if override is not None:
+        return override
+    value = os.environ.get("DELETE_VIDEO")
+    if value is None:
+        return DEFAULT_DELETE_VIDEO
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError("DELETE_VIDEO must be true/false, yes/no, on/off, or 1/0.")
 
 
 @dataclass(frozen=True, slots=True)

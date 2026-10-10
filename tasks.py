@@ -21,7 +21,6 @@ from whisper_transcriber.config import (
     DEFAULT_COOKIES_FROM_BROWSER,
     DEFAULT_CPU_FALLBACK,
     DEFAULT_CUDA_RETRIES,
-    DEFAULT_DELETE_VIDEO,
     DEFAULT_DEVICE,
     DEFAULT_DISPLAY_SUMMARY,
     DEFAULT_GEMINI_MODEL,
@@ -60,6 +59,15 @@ def _ensure_cuda_ld_library_path(device: str) -> None:
     os.execv(sys.executable, [sys.executable, *sys.argv])
 
 
+def _delete_video_override(delete_video: bool, keep_video: bool) -> bool | None:
+    if delete_video and keep_video:
+        print("Error: --delete-video and --keep-video cannot be used together.", file=sys.stderr)
+        raise SystemExit(1)
+    if keep_video:
+        return False
+    return True if delete_video else None
+
+
 @task
 def transcribe(
     c: Context,
@@ -73,7 +81,7 @@ def transcribe(
     video_download_command: str = DEFAULT_VIDEO_DOWNLOAD_COMMAND,
     cookies_from_browser: str | None = DEFAULT_COOKIES_FROM_BROWSER,
     cookies: str | None = DEFAULT_COOKIES_FILE,
-    delete_video: bool = DEFAULT_DELETE_VIDEO,
+    delete_video: bool = False,
     cpu_fallback: bool = DEFAULT_CPU_FALLBACK,
     summarize: bool = DEFAULT_SUMMARIZE,
     summary_model: str = DEFAULT_SUMMARY_MODEL,
@@ -85,8 +93,10 @@ def transcribe(
     cuda_retries: int = DEFAULT_CUDA_RETRIES,
     resume: bool = False,
     multilingual: bool = DEFAULT_MULTILINGUAL,
+    keep_video: bool = False,
 ) -> None:
     """Transcribe a video/audio file, or a video URL, to <file>.txt and <file>.srt."""
+    delete_override = _delete_video_override(delete_video, keep_video)
     _ensure_cuda_ld_library_path(device)
 
     from whisper_transcriber.cli import run_transcribe
@@ -102,7 +112,7 @@ def transcribe(
         video_download_command=video_download_command,
         cookies_from_browser=cookies_from_browser,
         cookies=cookies,
-        delete_video=delete_video,
+        delete_video=delete_override,
         cpu_fallback=cpu_fallback,
         summarize=summarize,
         summary_model=summary_model,
@@ -140,11 +150,13 @@ def summarize(
     video_download_command: str = DEFAULT_VIDEO_DOWNLOAD_COMMAND,
     cookies_from_browser: str | None = DEFAULT_COOKIES_FROM_BROWSER,
     cookies: str | None = DEFAULT_COOKIES_FILE,
-    delete_video: bool = DEFAULT_DELETE_VIDEO,
+    delete_video: bool = False,
+    keep_video: bool = False,
 ) -> None:
     """Summarize a transcript or video URL (Gemini first, then local transcription)."""
     from whisper_transcriber.downloader import is_video_url
 
+    delete_override = _delete_video_override(delete_video, keep_video)
     if is_video_url(file):
         _ensure_cuda_ld_library_path(device)
 
@@ -169,7 +181,7 @@ def summarize(
         video_download_command=video_download_command,
         cookies_from_browser=cookies_from_browser,
         cookies=cookies,
-        delete_video=delete_video,
+        delete_video=delete_override,
     )
     raise SystemExit(exit_code)
 
