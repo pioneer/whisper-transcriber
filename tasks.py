@@ -199,6 +199,25 @@ def cuda_env(c: Context) -> None:
 
 
 @task
+def env_sync(c: Context) -> None:
+    """Copy missing .env.example variables to .env without overwriting values."""
+    from whisper_transcriber.env_sync import sync_env
+
+    try:
+        added = sync_env()
+    except OSError as exc:
+        print(f"Error syncing environment configuration: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+    except UnicodeError as exc:
+        print("Error: Environment configuration files must be UTF-8.", file=sys.stderr)
+        raise SystemExit(1) from exc
+    if added:
+        print(f"Added configuration variables to .env: {', '.join(added)}")
+    else:
+        print(".env is up to date.")
+
+
+@task
 def test(c: Context) -> None:
     """Run the test suite (no GPU or model download required)."""
     c.run("uv run pytest", pty=True)

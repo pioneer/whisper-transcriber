@@ -49,6 +49,22 @@ uv sync
 (`nvidia-cublas-cu12`, `nvidia-cudnn-cu12`) needed by CTranslate2 — you do
 not need a system-wide CUDA toolkit install.
 
+### Updating environment configuration
+
+After pulling updates, run:
+
+```bash
+uv run inv env-sync
+```
+
+This appends variables newly listed in `.env.example` to `.env`, without changing
+existing values, comments, or custom variables. Optional variables stay commented
+out; uncomment them and supply real values when you want to enable them.
+Both active and commented assignments count as existing variables, so repeated
+runs do not add duplicates. Only variable names are printed, never values.
+If `.env` does not exist, it is created as a copy of `.env.example`.
+The command uses the files in the current working directory.
+
 ## Usage
 
 ```bash
