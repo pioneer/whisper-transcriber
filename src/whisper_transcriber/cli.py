@@ -39,7 +39,7 @@ from .summarizer import (
     resolve_transcript_path,
     summarize_file,
 )
-from .transcriber import OutOfMemoryError, TranscriptionError, transcribe
+from .transcriber import OutOfMemoryError, TranscriptionError, is_model_cached, transcribe
 
 
 def _format_hms(seconds: float) -> str:
@@ -188,11 +188,23 @@ def run_transcribe(
                 f"Resuming{resume_note} (already-transcribed segments are kept)...",
                 flush=True,
             )
-        print(
-            "Loading model (if not cached yet, this downloads it from Hugging Face "
-            "and may take a while depending on model size and connection speed)...",
-            flush=True,
-        )
+        model_path = Path(config.model).expanduser()
+        if model_path.is_dir():
+            loading_message = f"Loading model from local path: {model_path}..."
+        else:
+            try:
+                cached = is_model_cached(config.model, config.device)
+            except TranscriptionError as exc:
+                print(f"\nError: {exc}", file=sys.stderr)
+                return 1
+            if cached:
+                loading_message = "Loading model from the local Hugging Face cache..."
+            else:
+                loading_message = (
+                    "Downloading model from Hugging Face (may take a while depending "
+                    "on model size and connection speed)..."
+                )
+        print(loading_message, flush=True)
 
         try:
             segments, info = transcribe(path, config, start_time=resume_from)

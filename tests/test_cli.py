@@ -85,6 +85,38 @@ def test_run_transcribe_keeps_video_by_default(
     assert downloaded_file.exists()
 
 
+@pytest.mark.parametrize(
+    ("cached", "expected_message"),
+    [
+        (True, "Loading model from the local Hugging Face cache"),
+        (False, "Downloading model from Hugging Face"),
+    ],
+)
+def test_run_transcribe_reports_model_source(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    cached: bool,
+    expected_message: str,
+) -> None:
+    media_file = tmp_path / "video.wav"
+    media_file.write_bytes(b"fake data")
+    monkeypatch.setattr(cli, "is_model_cached", lambda model, device: cached)
+    monkeypatch.setattr(cli, "transcribe", _fake_transcribe)
+
+    exit_code = cli.run_transcribe(
+        file=str(media_file),
+        model="tiny",
+        device="cpu",
+        compute_type="int8",
+        language=None,
+        beam_size=1,
+    )
+
+    assert exit_code == 0
+    assert expected_message in capsys.readouterr().out
+
+
 def test_run_transcribe_download_error_returns_1(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -149,6 +149,20 @@ def load_model(config: TranscriptionConfig) -> Any:
         raise _classify_load_error(exc, config.device) from exc
 
 
+def is_model_cached(model: str, device: str) -> bool:
+    """Return whether a Hugging Face model is available in the local cache."""
+    from faster_whisper.utils import download_model
+    from huggingface_hub.errors import LocalEntryNotFoundError
+
+    try:
+        download_model(model, local_files_only=True)
+    except LocalEntryNotFoundError:
+        return False
+    except Exception as exc:
+        raise _classify_load_error(exc, device, stage="checking the model cache") from exc
+    return True
+
+
 def transcribe(
     path: Path,
     config: TranscriptionConfig,
